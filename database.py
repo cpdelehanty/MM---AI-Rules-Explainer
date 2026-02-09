@@ -40,6 +40,18 @@ def init_database():
         )
     """)
     
+    # Processed files table (tracks which specific files have been processed)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS processed_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL UNIQUE,
+            game_id INTEGER NOT NULL,
+            source_type TEXT NOT NULL,
+            processed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (game_id) REFERENCES games(id)
+        )
+    """)
+    
     # Create index for faster lookups
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_game_id ON chunks(game_id)
@@ -53,6 +65,15 @@ def game_exists(title):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM games WHERE title = ?", (title,))
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
+
+def file_already_processed(filename):
+    """Check if a specific PDF file has already been processed"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM processed_files WHERE filename = ?", (filename,))
     result = cursor.fetchone()
     conn.close()
     return result is not None
@@ -108,6 +129,12 @@ def add_game(title, filename, total_pages, chunks_with_embeddings, source_type='
                 INSERT INTO chunks (game_id, chunk_id, page_number, text, embedding, source_type)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (game_id, chunk['chunk_id'], chunk['page'], chunk['text'], embedding_json, source_type))
+        
+        # Record this file as processed
+        cursor.execute("""
+            INSERT OR IGNORE INTO processed_files (filename, game_id, source_type)
+            VALUES (?, ?, ?)
+        """, (filename, game_id, source_type))
         
         conn.commit()
         return game_id

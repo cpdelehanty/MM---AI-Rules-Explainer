@@ -10,7 +10,7 @@ from pypdf import PdfReader
 import tiktoken
 import voyageai
 from dotenv import load_dotenv
-from database import init_database, game_exists, add_game, get_all_games, get_library_stats
+from database import init_database, game_exists, add_game, get_all_games, get_library_stats, file_already_processed
 
 # Load environment variables
 load_dotenv()
@@ -161,7 +161,11 @@ def process_pdf(pdf_path, voyage_client):
     print(f"   → Type: {doc_type}")
     
     # Check if this exact file was already processed
-    # Note: We allow multiple docs for same game (rulebook + FAQ)
+    if file_already_processed(filename):
+        print(f"  ⏭️  File already processed, skipping")
+        return False
+    
+    # Check if base game exists
     existing_game = game_exists(base_game_title)
     if existing_game:
         print(f"  📚 Found existing '{base_game_title}' - will add to it")
