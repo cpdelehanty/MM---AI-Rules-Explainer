@@ -356,7 +356,7 @@ def main():
                 st.caption(f"📄 Pages: {', '.join(map(str, message['pages']))}")
             
             # Check if this message offers staff assistance
-            if message["role"] == "assistant" and "request staff assistance?" in message["content"].lower():
+            if message["role"] == "assistant" and "request staff assistance" in message["content"].lower():
                 # Show staff request button only if not already requested for this message
                 if message.get("staff_requested") != True:
                     col1, col2, col3 = st.columns([1, 1, 3])
@@ -460,7 +460,7 @@ def main():
                 })
                 
                 # If answer offers staff assistance, rerun to show buttons immediately
-                if "request staff assistance?" in answer.lower():
+                if "request staff assistance" in answer.lower():
                     st.rerun()
             
             else:
@@ -508,7 +508,7 @@ def main():
             })
             
             # If answer offers staff assistance, rerun to show buttons immediately
-            if "request staff assistance?" in answer.lower():
+            if "request staff assistance" in answer.lower():
                 st.rerun()
     
     # Footer
