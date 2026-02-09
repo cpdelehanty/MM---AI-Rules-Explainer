@@ -5,3 +5,4 @@ anthropic==0.40.0
 voyageai==0.2.1
 python-dotenv==1.0.0
 numpy==1.26.4
+cryptography>=3.1
