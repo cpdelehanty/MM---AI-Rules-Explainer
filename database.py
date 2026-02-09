@@ -1,0 +1,201 @@
+"""
+Database layer for game library
+Stores processed rulebooks in SQLite
+"""
+
+import sqlite3
+import json
+import os
+
+DB_PATH = "game_library.db"
+
+def init_database():
+    """Initialize database schema"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Games table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT UNIQUE NOT NULL,
+            filename TEXT NOT NULL,
+            total_pages INTEGER,
+            total_chunks INTEGER,
+            processed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Chunks table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id INTEGER NOT NULL,
+            chunk_id INTEGER NOT NULL,
+            page_number INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            embedding BLOB NOT NULL,
+            FOREIGN KEY (game_id) REFERENCES games(id)
+        )
+    """)
+    
+    # Create index for faster lookups
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_game_id ON chunks(game_id)
+    """)
+    
+    conn.commit()
+    conn.close()
+
+def game_exists(title):
+    """Check if game is already in database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM games WHERE title = ?", (title,))
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
+
+def add_game(title, filename, total_pages, chunks_with_embeddings):
+    """Add a new game and its chunks to database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Insert game
+        cursor.execute("""
+            INSERT INTO games (title, filename, total_pages, total_chunks)
+            VALUES (?, ?, ?, ?)
+        """, (title, filename, total_pages, len(chunks_with_embeddings)))
+        
+        game_id = cursor.lastrowid
+        
+        # Insert chunks
+        for chunk in chunks_with_embeddings:
+            # Serialize embedding as JSON
+            embedding_json = json.dumps(chunk['embedding'])
+            
+            cursor.execute("""
+                INSERT INTO chunks (game_id, chunk_id, page_number, text, embedding)
+                VALUES (?, ?, ?, ?, ?)
+            """, (game_id, chunk['chunk_id'], chunk['page'], chunk['text'], embedding_json))
+        
+        conn.commit()
+        return game_id
+    
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+def get_all_games():
+    """Get list of all games in library"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, title, total_pages, total_chunks, processed_date 
+        FROM games 
+        ORDER BY title
+    """)
+    games = cursor.fetchall()
+    conn.close()
+    
+    return [
+        {
+            "id": g[0],
+            "title": g[1],
+            "total_pages": g[2],
+            "total_chunks": g[3],
+            "processed_date": g[4]
+        }
+        for g in games
+    ]
+
+def get_game_chunks(game_title):
+    """Get all chunks for a specific game"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get game ID
+    cursor.execute("SELECT id FROM games WHERE title = ?", (game_title,))
+    game = cursor.fetchone()
+    
+    if not game:
+        conn.close()
+        return None
+    
+    game_id = game[0]
+    
+    # Get chunks
+    cursor.execute("""
+        SELECT chunk_id, page_number, text, embedding
+        FROM chunks
+        WHERE game_id = ?
+        ORDER BY chunk_id
+    """, (game_id,))
+    
+    chunks = cursor.fetchall()
+    conn.close()
+    
+    return [
+        {
+            "chunk_id": c[0],
+            "page": c[1],
+            "text": c[2],
+            "embedding": json.loads(c[3])
+        }
+        for c in chunks
+    ]
+
+def delete_game(title):
+    """Remove a game and all its chunks from database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Get game ID
+        cursor.execute("SELECT id FROM games WHERE title = ?", (title,))
+        game = cursor.fetchone()
+        
+        if game:
+            game_id = game[0]
+            
+            # Delete chunks first (foreign key)
+            cursor.execute("DELETE FROM chunks WHERE game_id = ?", (game_id,))
+            
+            # Delete game
+            cursor.execute("DELETE FROM games WHERE id = ?", (game_id,))
+            
+            conn.commit()
+            return True
+        
+        return False
+    
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+def get_library_stats():
+    """Get statistics about the game library"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT COUNT(*) FROM games")
+    total_games = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT SUM(total_pages) FROM games")
+    total_pages = cursor.fetchone()[0] or 0
+    
+    cursor.execute("SELECT SUM(total_chunks) FROM games")
+    total_chunks = cursor.fetchone()[0] or 0
+    
+    conn.close()
+    
+    return {
+        "total_games": total_games,
+        "total_pages": total_pages,
+        "total_chunks": total_chunks
+    }

@@ -1,0 +1,34 @@
+# API Keys - NEVER COMMIT
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# Logs
+*.log
+
+# DO NOT IGNORE (needed for deployment):
+# game_library.db - MUST be in repo
+# rulebooks/*.pdf - MUST be in repo
