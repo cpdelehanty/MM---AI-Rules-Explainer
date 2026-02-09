@@ -22,14 +22,50 @@ CHUNK_OVERLAP = 50
 RATE_LIMIT_DELAY = 25  # Wait 25 seconds between API calls (free tier = 3 RPM)
 
 def extract_game_title_from_filename(filename):
-    """Convert filename to game title"""
+    """
+    Convert filename to game title, combining related documents
+    
+    Examples:
+        wingspan-rulebook.pdf → Wingspan
+        wingspan-faq.pdf → Wingspan  
+        Wingspan - Rulebook.pdf → Wingspan
+        Wingspan - FAQ.pdf → Wingspan
+        catan.pdf → Catan
+    """
     # Remove .pdf extension
     title = filename.replace('.pdf', '')
-    # Replace underscores/hyphens with spaces
+    
+    # Handle different separator styles
+    separators = [' - ', '-', '_']
+    for sep in separators:
+        if sep in title:
+            # Take everything before the separator as the base game name
+            title = title.split(sep)[0]
+            break
+    
+    # Clean up and title case
+    title = title.strip()
     title = title.replace('_', ' ').replace('-', ' ')
-    # Title case
     title = title.title()
+    
     return title
+
+def get_document_type(filename):
+    """
+    Determine document type from filename
+    
+    Returns: 'rulebook', 'faq', 'errata', or 'supplement'
+    """
+    filename_lower = filename.lower()
+    
+    if 'faq' in filename_lower or 'f.a.q' in filename_lower:
+        return 'faq'
+    elif 'errata' in filename_lower:
+        return 'errata'
+    elif 'rulebook' in filename_lower or 'rules' in filename_lower:
+        return 'rulebook'
+    else:
+        return 'supplement'
 
 def extract_text_from_pdf(pdf_path):
     """Extract text from PDF with page numbers"""
@@ -117,14 +153,18 @@ def create_embeddings(chunks, voyage_client):
 def process_pdf(pdf_path, voyage_client):
     """Process a single PDF file"""
     filename = os.path.basename(pdf_path)
-    title = extract_game_title_from_filename(filename)
+    base_game_title = extract_game_title_from_filename(filename)
+    doc_type = get_document_type(filename)
     
-    print(f"\n📖 Processing: {title}")
+    print(f"\n📖 Processing: {filename}")
+    print(f"   → Base game: {base_game_title}")
+    print(f"   → Type: {doc_type}")
     
-    # Check if already processed
-    if game_exists(title):
-        print(f"  ⏭️  Already in library, skipping")
-        return False
+    # Check if this exact file was already processed
+    # Note: We allow multiple docs for same game (rulebook + FAQ)
+    existing_game = game_exists(base_game_title)
+    if existing_game:
+        print(f"  📚 Found existing '{base_game_title}' - will add to it")
     
     # Extract text
     print(f"  📄 Extracting text...")
@@ -140,10 +180,14 @@ def process_pdf(pdf_path, voyage_client):
     # Generate embeddings
     chunks_with_embeddings = create_embeddings(chunks, voyage_client)
     
-    # Store in database
+    # Store in database (merges with existing game if it exists)
     print(f"  💾 Storing in database...")
-    add_game(title, filename, total_pages, chunks_with_embeddings)
-    print(f"  ✅ Successfully added to library!")
+    add_game(base_game_title, filename, total_pages, chunks_with_embeddings, source_type=doc_type)
+    
+    if existing_game:
+        print(f"  ✅ Successfully added to existing game!")
+    else:
+        print(f"  ✅ Successfully created new game!")
     
     return True
 

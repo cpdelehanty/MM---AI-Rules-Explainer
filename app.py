@@ -167,9 +167,21 @@ def answer_question(question, game_title, voyage_client, anthropic_client):
     
     # Build context
     context_parts = []
+    sources_used = set()
     for chunk in top_chunks:
         page = chunk['page']
-        context_parts.append(f"[Page {page}]\n{chunk['text']}")
+        source_type = chunk.get('source_type', 'rulebook')
+        sources_used.add(source_type)
+        
+        # Add source label to context
+        source_label = {
+            'rulebook': 'Rulebook',
+            'faq': 'FAQ',
+            'errata': 'Errata',
+            'supplement': 'Supplement'
+        }.get(source_type, 'Rulebook')
+        
+        context_parts.append(f"[{source_label} - Page {page}]\n{chunk['text']}")
     
     context = "\n\n---\n\n".join(context_parts)
     
@@ -218,7 +230,8 @@ YOUR ANSWER:"""
     answer = message.content[0].text
     source_pages = sorted(set([chunk['page'] for chunk in top_chunks]))
     
-    return answer, source_pages
+    # Return metadata about sources used
+    return answer, source_pages, sources_used
 
 def generate_game_intro(game_title, voyage_client, anthropic_client):
     """Generate a brief intro about the game from rulebook"""
@@ -412,15 +425,24 @@ def main():
                 # Same game detected - just answer the question
                 with st.chat_message("assistant"):
                     with st.spinner("Checking the rulebook..."):
-                        answer, pages = answer_question(
+                        answer, pages, sources_used = answer_question(
                             prompt,
                             st.session_state.current_game,
                             voyage_client,
                             anthropic_client
                         )
+                    # Store metadata for display
+                    st.session_state.last_answer_meta = {'sources_used': sources_used}
+                    
                     st.markdown(answer)
                     if pages:
                         st.caption(f"📄 Pages: {', '.join(map(str, pages))}")
+                    
+                    # Show source types if multiple document types were used
+                    if len(sources_used) > 1:
+                        source_labels = {'rulebook': '📖 Rulebook', 'faq': '❓ FAQ', 'errata': '⚠️ Errata', 'supplement': '📑 Supplement'}
+                        source_str = ' + '.join([source_labels.get(s, s.title()) for s in sorted(sources_used)])
+                        st.caption(f"📚 Sources: {source_str}")
                 
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -451,15 +473,24 @@ def main():
             # Game already selected and user isn't switching - answer about current game
             with st.chat_message("assistant"):
                 with st.spinner("Checking the rulebook..."):
-                    answer, pages = answer_question(
+                    answer, pages, sources_used = answer_question(
                         prompt,
                         st.session_state.current_game,
                         voyage_client,
                         anthropic_client
                     )
+                # Store metadata for display
+                st.session_state.last_answer_meta = {'sources_used': sources_used}
+                
                 st.markdown(answer)
                 if pages:
                     st.caption(f"📄 Pages: {', '.join(map(str, pages))}")
+                
+                # Show source types if multiple document types were used
+                if len(sources_used) > 1:
+                    source_labels = {'rulebook': '📖 Rulebook', 'faq': '❓ FAQ', 'errata': '⚠️ Errata', 'supplement': '📑 Supplement'}
+                    source_str = ' + '.join([source_labels.get(s, s.title()) for s in sorted(sources_used)])
+                    st.caption(f"📚 Sources: {source_str}")
             
             st.session_state.messages.append({
                 "role": "assistant",

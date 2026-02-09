@@ -35,6 +35,7 @@ def init_database():
             page_number INTEGER NOT NULL,
             text TEXT NOT NULL,
             embedding BLOB NOT NULL,
+            source_type TEXT DEFAULT 'rulebook',
             FOREIGN KEY (game_id) REFERENCES games(id)
         )
     """)
@@ -56,29 +57,57 @@ def game_exists(title):
     conn.close()
     return result is not None
 
-def add_game(title, filename, total_pages, chunks_with_embeddings):
-    """Add a new game and its chunks to database"""
+def add_game(title, filename, total_pages, chunks_with_embeddings, source_type='rulebook'):
+    """
+    Add a new game or add chunks to existing game
+    
+    If game exists: adds chunks to existing game
+    If game doesn't exist: creates new game entry
+    """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     try:
-        # Insert game
-        cursor.execute("""
-            INSERT INTO games (title, filename, total_pages, total_chunks)
-            VALUES (?, ?, ?, ?)
-        """, (title, filename, total_pages, len(chunks_with_embeddings)))
+        # Check if game already exists
+        cursor.execute("SELECT id, total_pages, total_chunks FROM games WHERE title = ?", (title,))
+        existing = cursor.fetchone()
         
-        game_id = cursor.lastrowid
+        if existing:
+            # Game exists - add to it
+            game_id = existing[0]
+            old_pages = existing[1]
+            old_chunks = existing[2]
+            
+            # Update totals
+            new_total_pages = old_pages + total_pages
+            new_total_chunks = old_chunks + len(chunks_with_embeddings)
+            
+            cursor.execute("""
+                UPDATE games 
+                SET total_pages = ?, total_chunks = ?, processed_date = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (new_total_pages, new_total_chunks, game_id))
+            
+            print(f"  ✅ Adding to existing game (now {new_total_chunks} total chunks)")
+        else:
+            # New game - create entry
+            cursor.execute("""
+                INSERT INTO games (title, filename, total_pages, total_chunks)
+                VALUES (?, ?, ?, ?)
+            """, (title, filename, total_pages, len(chunks_with_embeddings)))
+            
+            game_id = cursor.lastrowid
+            print(f"  ✅ Created new game entry")
         
-        # Insert chunks
+        # Insert chunks with source type
         for chunk in chunks_with_embeddings:
             # Serialize embedding as JSON
             embedding_json = json.dumps(chunk['embedding'])
             
             cursor.execute("""
-                INSERT INTO chunks (game_id, chunk_id, page_number, text, embedding)
-                VALUES (?, ?, ?, ?, ?)
-            """, (game_id, chunk['chunk_id'], chunk['page'], chunk['text'], embedding_json))
+                INSERT INTO chunks (game_id, chunk_id, page_number, text, embedding, source_type)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (game_id, chunk['chunk_id'], chunk['page'], chunk['text'], embedding_json, source_type))
         
         conn.commit()
         return game_id
@@ -127,9 +156,9 @@ def get_game_chunks(game_title):
     
     game_id = game[0]
     
-    # Get chunks
+    # Get chunks with source type
     cursor.execute("""
-        SELECT chunk_id, page_number, text, embedding
+        SELECT chunk_id, page_number, text, embedding, source_type
         FROM chunks
         WHERE game_id = ?
         ORDER BY chunk_id
@@ -143,7 +172,8 @@ def get_game_chunks(game_title):
             "chunk_id": c[0],
             "page": c[1],
             "text": c[2],
-            "embedding": json.loads(c[3])
+            "embedding": json.loads(c[3]),
+            "source_type": c[4] if len(c) > 4 else "rulebook"  # Backward compatibility
         }
         for c in chunks
     ]
