@@ -201,20 +201,29 @@ def answer_question(question, game_title, voyage_client, anthropic_client):
         instruction = """Provide a clear, direct answer to the specific question asked."""
     
     # Generate answer
-    prompt = f"""You are a helpful board game rules assistant at The Merry Meeple cafe. Answer the customer's question based ONLY on the rulebook excerpts provided below.
+    prompt = f"""You are a helpful board game rules assistant at The Merry Meeple cafe. Answer the customer's question based ONLY on the source documents provided below.
+
+The sources may include:
+- Rulebook (official game rules)
+- FAQ (official frequently asked questions)
+- Errata (official corrections/clarifications)
+- Supplements (other official materials)
 
 {instruction}
 
 Rules for answering:
 - Be friendly and conversational
-- Always cite page numbers in the format: (p. X) or (pp. X-Y)
-- If the answer isn't in the excerpts, say "I don't see that information in the rulebook I have access to. Would you like me to request staff assistance?"
+- When citing information, include BOTH the source type AND page number
+  Example: "According to the FAQ, nectar tokens can be spent as wild food (FAQ p. 2)"
+  Example: "The rulebook states each player draws 5 cards (Rulebook p. 3)"
+- If information comes from multiple sources, cite all: "This is covered in both the Rulebook (p. 5) and clarified in the FAQ (p. 2)"
+- If the answer isn't in any of the provided sources, say "I don't see that information in the materials I have access to. Would you like me to request staff assistance?"
 - If the customer responds with just "yes" or "yes please" after you've offered staff assistance, remind them: "Please click the '📞 Yes, get help' button above to notify staff. I can't send the notification through chat messages."
 - If the question is unclear, ask ONE clarifying question
-- Never make up rules that aren't in the rulebook
+- Never make up rules that aren't in the source documents
 - NEVER say you've notified staff unless the customer clicked the actual button
 
-RULEBOOK EXCERPTS FOR {game_title.upper()}:
+SOURCE DOCUMENTS FOR {game_title.upper()}:
 {context}
 
 CUSTOMER QUESTION: {question}
