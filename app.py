@@ -197,8 +197,10 @@ Rules for answering:
 - Be friendly and conversational
 - Always cite page numbers in the format: (p. X) or (pp. X-Y)
 - If the answer isn't in the excerpts, say "I don't see that information in the rulebook I have access to. Would you like me to request staff assistance?"
+- If the customer responds with just "yes" or "yes please" after you've offered staff assistance, remind them: "Please click the '📞 Yes, get help' button above to notify staff. I can't send the notification through chat messages."
 - If the question is unclear, ask ONE clarifying question
 - Never make up rules that aren't in the rulebook
+- NEVER say you've notified staff unless the customer clicked the actual button
 
 RULEBOOK EXCERPTS FOR {game_title.upper()}:
 {context}
@@ -425,6 +427,10 @@ def main():
                     "content": answer,
                     "pages": pages
                 })
+                
+                # If answer offers staff assistance, rerun to show buttons immediately
+                if "request staff assistance?" in answer.lower():
+                    st.rerun()
             
             else:
                 # No game detected - general response
@@ -460,6 +466,10 @@ def main():
                 "content": answer,
                 "pages": pages
             })
+            
+            # If answer offers staff assistance, rerun to show buttons immediately
+            if "request staff assistance?" in answer.lower():
+                st.rerun()
     
     # Footer
     st.markdown("---")
