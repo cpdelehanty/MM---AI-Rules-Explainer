@@ -17,6 +17,61 @@ load_dotenv()
 # Configuration
 TOP_K_RESULTS = 5
 
+def send_staff_ping(table_id, game_title, question, reason="rules_question"):
+    """
+    Send notification to staff (STUB - to be implemented)
+    
+    Args:
+        table_id: Table number/identifier
+        game_title: Current game being played
+        question: Customer's question
+        reason: Type of request (rules_question, new_game, food_order, general_help)
+    
+    Returns:
+        dict with success status and message
+    
+    TODO: Implement actual notification:
+    - Option 1: Email to staff (SendGrid, AWS SES)
+    - Option 2: SMS to on-duty staff (Twilio)
+    - Option 3: Push to staff dashboard (WebSocket/polling)
+    - Option 4: Slack notification to #cafe-assistance channel
+    """
+    # STUB: For now, just log and return success
+    print(f"[STAFF PING] Table: {table_id}, Game: {game_title}, Reason: {reason}")
+    print(f"[STAFF PING] Question: {question}")
+    
+    # TODO: Replace with actual implementation
+    # Example future implementations:
+    
+    # Email:
+    # send_email(
+    #     to="staff@merrymeeple.com",
+    #     subject=f"Customer Assistance Needed - Table {table_id}",
+    #     body=f"Game: {game_title}\nQuestion: {question}"
+    # )
+    
+    # SMS:
+    # twilio_client.messages.create(
+    #     to="+1234567890",
+    #     from_="+0987654321",
+    #     body=f"Table {table_id} needs help with {game_title}: {question[:100]}"
+    # )
+    
+    # Database:
+    # db.staff_requests.insert({
+    #     'timestamp': datetime.now(),
+    #     'table_id': table_id,
+    #     'game': game_title,
+    #     'question': question,
+    #     'reason': reason,
+    #     'status': 'pending'
+    # })
+    
+    return {
+        "success": True,
+        "message": "Staff notified! Someone will be with you shortly."
+    }
+
 # Page config
 st.set_page_config(
     page_title="The Merry Meeple - Rules Assistant",
@@ -141,7 +196,7 @@ def answer_question(question, game_title, voyage_client, anthropic_client):
 Rules for answering:
 - Be friendly and conversational
 - Always cite page numbers in the format: (p. X) or (pp. X-Y)
-- If the answer isn't in the excerpts, say "I don't see that specific information in the rulebook. Let me check with staff for you."
+- If the answer isn't in the excerpts, say "I don't see that information in the rulebook I have access to. Would you like me to request staff assistance?"
 - If the question is unclear, ask ONE clarifying question
 - Never make up rules that aren't in the rulebook
 
@@ -260,20 +315,64 @@ def main():
         st.session_state.messages = []
     if 'current_game' not in st.session_state:
         st.session_state.current_game = None
+    if 'pending_staff_request' not in st.session_state:
+        st.session_state.pending_staff_request = None
+    if 'last_question' not in st.session_state:
+        st.session_state.last_question = None
     
     # Show current game if selected
     if st.session_state.current_game:
         st.info(f"🎮 Currently helping with: **{st.session_state.current_game}**")
     
     # Display chat history
-    for message in st.session_state.messages:
+    for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
             if "pages" in message and message["pages"]:
                 st.caption(f"📄 Pages: {', '.join(map(str, message['pages']))}")
+            
+            # Check if this message offers staff assistance
+            if message["role"] == "assistant" and "request staff assistance?" in message["content"].lower():
+                # Show staff request button only if not already requested for this message
+                if message.get("staff_requested") != True:
+                    col1, col2, col3 = st.columns([1, 1, 3])
+                    with col1:
+                        if st.button("📞 Yes, get help", key=f"staff_yes_{idx}"):
+                            # Send staff ping
+                            result = send_staff_ping(
+                                table_id="Unknown",  # TODO: Get from session/login
+                                game_title=st.session_state.current_game or "Unknown",
+                                question=st.session_state.last_question or "Help requested",
+                                reason="rules_question"
+                            )
+                            
+                            # Mark as requested
+                            st.session_state.messages[idx]["staff_requested"] = True
+                            
+                            # Add confirmation message
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": "✅ " + result["message"]
+                            })
+                            st.rerun()
+                    
+                    with col2:
+                        if st.button("📖 Check manual", key=f"staff_no_{idx}"):
+                            st.session_state.messages[idx]["staff_requested"] = "declined"
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": "No problem! The physical rulebook at your table might have more details, or feel free to wave down a staff member anytime."
+                            })
+                            st.rerun()
+                
+                elif message.get("staff_requested") == True:
+                    st.success("✅ Staff has been notified")
     
     # Chat input
     if prompt := st.chat_input("Ask about the rules, or tell me which game you're playing..."):
+        # Store the question for potential staff ping
+        st.session_state.last_question = prompt
+        
         # Add user message to chat
         st.session_state.messages.append({"role": "user", "content": prompt})
         
@@ -366,6 +465,7 @@ def main():
     st.markdown("---")
     st.caption("💡 Just tell me which game you're playing, then ask away!")
     st.caption("🔄 You can switch games anytime by saying \"I'm playing [game name]\"")
+    st.caption("🆘 Can't find an answer? I can request staff assistance for you!")
 
 if __name__ == "__main__":
     main()
