@@ -238,8 +238,17 @@ SOURCE DOCUMENTS FOR {game_title.upper()}:
 MENU & FOOD/DRINK INFORMATION:
 {menu_context}
 
-If the customer asks about food, drinks, the menu, or retail items, answer from the MENU section above.
-When the customer asks for the full menu or what's available, LIST the actual items with names, prices, descriptions, and dietary tags (e.g. vegan, gluten-free). Do not just summarize categories.
+When the customer asks about food, drinks, the menu, or retail items, answer from the MENU section above.
+When the customer asks for the full menu or what's available, format it like this:
+- List items under category headers with name and price as the bullet
+- Put the full description (from the notes) in italics underneath each bullet
+- Show dietary tags as plain text in parentheses after the description
+Example format:
+**Snacks**
+- Pretzel Bites — $10
+  *Pillowy soft pretzel bites with a dark, glossy crust and a generous ramekin of warm beer cheese for dunking.*
+  (vegetarian)
+
 If the customer says they want to order or is ready to order, respond helpfully and end your response with the exact tag: [STAFF_PING:food_order]
 Do NOT take or confirm specific orders — just acknowledge and say staff will come by.
 Do NOT invent menu items that are not listed above.
@@ -310,20 +319,42 @@ def generate_general_response(message, available_games, anthropic_client, menu_c
 
 The customer just said: "{message}"
 
-Respond naturally and helpfully. If they're asking about games, here's our full library:
+Respond naturally and helpfully.
+
+GAME LIBRARY:
 {game_list}
+
+When the customer asks to browse games or what games are available, format the response like this:
+- Group games under category headers (e.g. **Strategy**, **Family**, **Party**, **Card Games**) based on your knowledge of each game
+- List each game as a bullet point under its category
+- Under each bullet, add a short 1-sentence description of the game in italics
+Example format:
+**Strategy**
+- Catan
+  *Trade resources and build settlements to dominate the island.*
+- Wingspan
+  *Collect birds and build a thriving wildlife preserve in this engine-building game.*
 
 MENU & FOOD/DRINK INFORMATION:
 {menu_context}
 
-If the customer asks about food, drinks, the menu, or retail items, answer from the MENU section above.
-When the customer asks for the full menu or what's available, LIST the actual items with names, prices, descriptions, and dietary tags (e.g. vegan, gluten-free). Do not just summarize categories.
+When the customer asks about food, drinks, the menu, or retail items, answer from the MENU section above.
+When the customer asks for the full menu or what's available, format it like this:
+- List items under category headers with name and price as the bullet
+- Put the full description (from the notes) in italics underneath each bullet
+- Show dietary tags as plain text in parentheses after the description
+Example format:
+**Snacks**
+- Pretzel Bites — $10
+  *Pillowy soft pretzel bites with a dark, glossy crust and a generous ramekin of warm beer cheese for dunking.*
+  (vegetarian)
+
 If the customer says they want to order or is ready to order, respond helpfully and end your response with the exact tag: [STAFF_PING:food_order]
 Do NOT take or confirm specific orders — just acknowledge and say staff will come by.
-Do NOT invent menu items that are not listed above.
+Do NOT invent menu items or games that are not listed above.
 Do NOT roleplay physical actions (e.g. "slides over menu", "hands you a card"). You are a text-based assistant, not a person in the room.
 
-If the customer is asking about the menu, give a full answer. Otherwise keep your response brief (1-3 sentences).
+If the customer is asking about the menu or games, give a full answer. Otherwise keep your response brief (1-3 sentences).
 End with a helpful "What else can I help with?" rather than always pushing them to pick a game.
 
 Your response:"""
