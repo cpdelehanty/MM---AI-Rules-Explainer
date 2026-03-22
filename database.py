@@ -52,11 +52,37 @@ def init_database():
         )
     """)
     
+    # Menu items table (cached from Google Sheets)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS menu_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id TEXT UNIQUE NOT NULL,
+            category TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            price TEXT,
+            dietary_tags TEXT,
+            available INTEGER DEFAULT 1,
+            notes TEXT,
+            last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Menu sync log
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS menu_sync_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            items_synced INTEGER,
+            status TEXT
+        )
+    """)
+
     # Create index for faster lookups
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_game_id ON chunks(game_id)
     """)
-    
+
     conn.commit()
     conn.close()
 
@@ -256,3 +282,42 @@ def get_library_stats():
         "total_pages": total_pages,
         "total_chunks": total_chunks
     }
+
+def get_menu_items(category=None, available_only=True):
+    """Get menu items from cache, optionally filtered by category"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    query = "SELECT * FROM menu_items"
+    conditions = []
+    params = []
+
+    if available_only:
+        conditions.append("available = 1")
+    if category:
+        conditions.append("category = ?")
+        params.append(category)
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    query += " ORDER BY category, name"
+    cursor.execute(query, params)
+    items = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return items
+
+def get_last_menu_sync():
+    """Get timestamp of last successful menu sync (today only)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT synced_at FROM menu_sync_log
+        WHERE status = 'success'
+          AND date(synced_at) = date('now')
+        ORDER BY synced_at DESC LIMIT 1
+    """)
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None

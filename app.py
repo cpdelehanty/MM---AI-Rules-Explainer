@@ -10,6 +10,7 @@ from anthropic import Anthropic
 import voyageai
 from dotenv import load_dotenv
 from database import init_database, get_all_games, get_game_chunks
+from sync_menu import should_sync, sync_menu_from_sheets, format_menu_for_prompt
 
 # Load environment variables
 load_dotenv()
@@ -96,6 +97,14 @@ def load_game_library():
     games = get_all_games()
     return {game['title']: game for game in games}
 
+# Load menu (syncs from Google Sheets once per day)
+@st.cache_data(ttl=86400)
+def load_menu():
+    """Load menu, syncing from Google Sheets if needed"""
+    if should_sync():
+        sync_menu_from_sheets()
+    return format_menu_for_prompt()
+
 # Detect which game the user is asking about
 def detect_game(message, available_games, anthropic_client):
     """Use Claude to detect which game the user is referring to"""
@@ -146,7 +155,7 @@ def search_chunks(query_embedding, chunks, top_k=TOP_K_RESULTS):
     similarities.sort(reverse=True, key=lambda x: x[0])
     return [chunk for _, chunk in similarities[:top_k]]
 
-def answer_question(question, game_title, voyage_client, anthropic_client):
+def answer_question(question, game_title, voyage_client, anthropic_client, menu_context=""):
     """Generate answer to rules question"""
     
     # Load game chunks from database
@@ -226,6 +235,14 @@ Rules for answering:
 SOURCE DOCUMENTS FOR {game_title.upper()}:
 {context}
 
+MENU & FOOD/DRINK INFORMATION:
+{menu_context}
+
+If the customer asks about food, drinks, the menu, or retail items, answer from the MENU section above.
+If the customer says they want to order or is ready to order, respond helpfully and end your response with the exact tag: [STAFF_PING:food_order]
+Do NOT take or confirm specific orders — just acknowledge and say staff will come by.
+Do NOT invent menu items that are not listed above.
+
 CUSTOMER QUESTION: {question}
 
 YOUR ANSWER:"""
@@ -278,44 +295,33 @@ Your welcome message:"""
     intro = message.content[0].text
     return f"Got it! I'm here to help with **{game_title}**.\n\n{intro}\n\nWhat would you like to know?"
 
-def generate_general_response(message, available_games, anthropic_client):
+def generate_general_response(message, available_games, anthropic_client, menu_context=""):
     """Generate response when no game is selected"""
     game_list = "\n".join([f"• {game}" for game in sorted(available_games)])
-    
+
     prompt = f"""You are a friendly board game rules assistant at The Merry Meeple cafe. The customer just said: "{message}"
 
 They haven't selected a game yet. Respond naturally and helpfully. If they're asking about games, mention we have these available:
 {game_list}
 
-Keep your response brief (1-2 sentences) and invite them to tell you which game they're playing.
+MENU & FOOD/DRINK INFORMATION:
+{menu_context}
+
+If the customer asks about food, drinks, the menu, or retail items, answer from the MENU section above.
+If the customer says they want to order or is ready to order, respond helpfully and end your response with the exact tag: [STAFF_PING:food_order]
+Do NOT take or confirm specific orders — just acknowledge and say staff will come by.
+Do NOT invent menu items that are not listed above.
+
+Keep your response brief (1-3 sentences). If they haven't mentioned a game, invite them to tell you which game they're playing.
 
 Your response:"""
 
     response = anthropic_client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=150,
+        max_tokens=200,
         messages=[{"role": "user", "content": prompt}]
     )
-    
-    return response.content[0].text
-    """Generate response when no game is selected"""
-    game_list = "\n".join([f"• {game}" for game in sorted(available_games)])
-    
-    prompt = f"""You are a friendly board game rules assistant at The Merry Meeple cafe. The customer just said: "{message}"
 
-They haven't selected a game yet. Respond naturally and helpfully. If they're asking about games, mention we have these available:
-{game_list}
-
-Keep your response brief (1-2 sentences) and invite them to tell you which game they're playing.
-
-Your response:"""
-
-    response = anthropic_client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=150,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    
     return response.content[0].text
 
 # Main app
@@ -327,6 +333,7 @@ def main():
     # Initialize
     anthropic_client, voyage_client = init_clients()
     game_library = load_game_library()
+    menu_context = load_menu()
     
     # Check if library is empty
     if not game_library:
@@ -438,41 +445,61 @@ def main():
                             prompt,
                             st.session_state.current_game,
                             voyage_client,
-                            anthropic_client
+                            anthropic_client,
+                            menu_context
+                        )
+                    # Check for food order staff ping
+                    if "[STAFF_PING:food_order]" in answer:
+                        answer = answer.replace("[STAFF_PING:food_order]", "").strip()
+                        send_staff_ping(
+                            table_id="Unknown",
+                            game_title=st.session_state.current_game or "N/A",
+                            question="Customer ready to order food/drinks",
+                            reason="food_order"
                         )
                     # Store metadata for display
                     st.session_state.last_answer_meta = {'sources_used': sources_used}
-                    
+
                     st.markdown(answer)
                     if pages:
                         st.caption(f"📄 Pages: {', '.join(map(str, pages))}")
-                    
+
                     # Show source types if multiple document types were used
                     if len(sources_used) > 1:
                         source_labels = {'rulebook': '📖 Rulebook', 'faq': '❓ FAQ', 'errata': '⚠️ Errata', 'supplement': '📑 Supplement'}
                         source_str = ' + '.join([source_labels.get(s, s.title()) for s in sorted(sources_used)])
                         st.caption(f"📚 Sources: {source_str}")
-                
+
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": answer,
                     "pages": pages
                 })
-                
+
                 # If answer offers staff assistance, rerun to show buttons immediately
                 if "request staff assistance" in answer.lower():
                     st.rerun()
-            
+
             else:
                 # No game detected - general response
                 with st.chat_message("assistant"):
                     response = generate_general_response(
                         prompt,
                         list(game_library.keys()),
-                        anthropic_client
+                        anthropic_client,
+                        menu_context
                     )
+                    # Check for food order staff ping
+                    if "[STAFF_PING:food_order]" in response:
+                        response = response.replace("[STAFF_PING:food_order]", "").strip()
+                        send_staff_ping(
+                            table_id="Unknown",
+                            game_title=st.session_state.current_game or "N/A",
+                            question="Customer ready to order food/drinks",
+                            reason="food_order"
+                        )
                     st.markdown(response)
-                
+
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": response
@@ -486,27 +513,37 @@ def main():
                         prompt,
                         st.session_state.current_game,
                         voyage_client,
-                        anthropic_client
+                        anthropic_client,
+                        menu_context
+                    )
+                # Check for food order staff ping
+                if "[STAFF_PING:food_order]" in answer:
+                    answer = answer.replace("[STAFF_PING:food_order]", "").strip()
+                    send_staff_ping(
+                        table_id="Unknown",
+                        game_title=st.session_state.current_game or "N/A",
+                        question="Customer ready to order food/drinks",
+                        reason="food_order"
                     )
                 # Store metadata for display
                 st.session_state.last_answer_meta = {'sources_used': sources_used}
-                
+
                 st.markdown(answer)
                 if pages:
                     st.caption(f"📄 Pages: {', '.join(map(str, pages))}")
-                
+
                 # Show source types if multiple document types were used
                 if len(sources_used) > 1:
                     source_labels = {'rulebook': '📖 Rulebook', 'faq': '❓ FAQ', 'errata': '⚠️ Errata', 'supplement': '📑 Supplement'}
                     source_str = ' + '.join([source_labels.get(s, s.title()) for s in sorted(sources_used)])
                     st.caption(f"📚 Sources: {source_str}")
-            
+
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": answer,
                 "pages": pages
             })
-            
+
             # If answer offers staff assistance, rerun to show buttons immediately
             if "request staff assistance" in answer.lower():
                 st.rerun()
