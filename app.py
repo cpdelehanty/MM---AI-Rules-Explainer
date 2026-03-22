@@ -49,10 +49,7 @@ def extract_preferences(user_message, anthropic_client, phone):
 
     try:
         import json as _json
-        response = anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=200,
-            messages=[{"role": "user", "content": f"""Given this customer message: "{user_message}"
+        extraction_prompt = f"""Given this customer message: "{user_message}"
 
 Extract any of the following if mentioned (respond with JSON only, or {{}} if nothing):
 - dietary_preferences: any food allergies, restrictions, or preferences
@@ -61,9 +58,17 @@ Extract any of the following if mentioned (respond with JSON only, or {{}} if no
 - language_preference: if they write in or request a non-English language (e.g. "Spanish", "French", "Haitian Creole")
 - notable_info: any personal detail worth remembering (birthday, celebration, etc.)
 
-Only extract what is explicitly stated. Do not infer."""}]
+Only extract what is explicitly stated. Do not infer."""
+
+        response = anthropic_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=200,
+            messages=[{"role": "user", "content": extraction_prompt}]
         )
         text = response.content[0].text.strip()
+        # Claude sometimes wraps JSON in markdown code blocks
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         # Parse JSON from response
         if text.startswith("{"):
             data = _json.loads(text)
@@ -76,6 +81,11 @@ Only extract what is explicitly stated. Do not infer."""}]
                     notable_info=data.get("notable_info"),
                     language=data.get("language_preference"),
                 )
+                print(f"[PREFERENCE EXTRACTION] Saved: {data}")
+            else:
+                print(f"[PREFERENCE EXTRACTION] No preferences found in: {text}")
+        else:
+            print(f"[PREFERENCE EXTRACTION] Unexpected response format: {text}")
     except Exception as e:
         print(f"[PREFERENCE EXTRACTION] Error: {e}")
 
