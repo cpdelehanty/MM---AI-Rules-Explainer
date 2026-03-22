@@ -239,7 +239,7 @@ MENU & FOOD/DRINK INFORMATION:
 {menu_context}
 
 If the customer asks about food, drinks, the menu, or retail items, answer from the MENU section above.
-When the customer asks for the full menu or what's available, LIST the actual items with names and prices — do not just summarize categories.
+When the customer asks for the full menu or what's available, LIST the actual items with names, prices, descriptions, and dietary tags (e.g. vegan, gluten-free). Do not just summarize categories.
 If the customer says they want to order or is ready to order, respond helpfully and end your response with the exact tag: [STAFF_PING:food_order]
 Do NOT take or confirm specific orders — just acknowledge and say staff will come by.
 Do NOT invent menu items that are not listed above.
@@ -317,7 +317,7 @@ MENU & FOOD/DRINK INFORMATION:
 {menu_context}
 
 If the customer asks about food, drinks, the menu, or retail items, answer from the MENU section above.
-When the customer asks for the full menu or what's available, LIST the actual items with names and prices — do not just summarize categories.
+When the customer asks for the full menu or what's available, LIST the actual items with names, prices, descriptions, and dietary tags (e.g. vegan, gluten-free). Do not just summarize categories.
 If the customer says they want to order or is ready to order, respond helpfully and end your response with the exact tag: [STAFF_PING:food_order]
 Do NOT take or confirm specific orders — just acknowledge and say staff will come by.
 Do NOT invent menu items that are not listed above.
@@ -362,25 +362,27 @@ def main():
         st.session_state.pending_staff_request = None
     if 'last_question' not in st.session_state:
         st.session_state.last_question = None
+    if 'pending_quick_action' not in st.session_state:
+        st.session_state.pending_quick_action = None
 
     # Quick-action buttons (only show when no messages yet)
     if not st.session_state.messages:
         cols = st.columns(4)
         with cols[0]:
             if st.button("🎮 Browse games", use_container_width=True):
-                st.session_state.messages.append({"role": "user", "content": "What games do you have?"})
+                st.session_state.pending_quick_action = "What games do you have?"
                 st.rerun()
         with cols[1]:
             if st.button("📖 Rules help", use_container_width=True):
-                st.session_state.messages.append({"role": "user", "content": "I need help with game rules"})
+                st.session_state.pending_quick_action = "I need help with game rules"
                 st.rerun()
         with cols[2]:
             if st.button("🍽️ See the menu", use_container_width=True):
-                st.session_state.messages.append({"role": "user", "content": "What's on the menu?"})
+                st.session_state.pending_quick_action = "What's on the menu?"
                 st.rerun()
         with cols[3]:
             if st.button("🙋 Get staff help", use_container_width=True):
-                st.session_state.messages.append({"role": "user", "content": "I need help from a staff member"})
+                st.session_state.pending_quick_action = "I need help from a staff member"
                 st.rerun()
     
     # Show current game if selected
@@ -431,14 +433,21 @@ def main():
                 elif message.get("staff_requested") == True:
                     st.success("✅ Staff has been notified")
     
-    # Chat input
-    if prompt := st.chat_input("Ask about rules, the menu, or anything else..."):
+    # Handle pending quick action from button press
+    prompt = None
+    if st.session_state.pending_quick_action:
+        prompt = st.session_state.pending_quick_action
+        st.session_state.pending_quick_action = None
+    else:
+        prompt = st.chat_input("Ask about rules, the menu, or anything else...")
+
+    if prompt:
         # Store the question for potential staff ping
         st.session_state.last_question = prompt
-        
+
         # Add user message to chat
         st.session_state.messages.append({"role": "user", "content": prompt})
-        
+
         with st.chat_message("user"):
             st.markdown(prompt)
         
