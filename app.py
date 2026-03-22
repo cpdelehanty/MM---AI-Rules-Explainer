@@ -239,9 +239,11 @@ MENU & FOOD/DRINK INFORMATION:
 {menu_context}
 
 If the customer asks about food, drinks, the menu, or retail items, answer from the MENU section above.
+When the customer asks for the full menu or what's available, LIST the actual items with names and prices — do not just summarize categories.
 If the customer says they want to order or is ready to order, respond helpfully and end your response with the exact tag: [STAFF_PING:food_order]
 Do NOT take or confirm specific orders — just acknowledge and say staff will come by.
 Do NOT invent menu items that are not listed above.
+Do NOT roleplay physical actions (e.g. "slides over menu", "hands you a card"). You are a text-based assistant, not a person in the room.
 
 CUSTOMER QUESTION: {question}
 
@@ -249,7 +251,7 @@ YOUR ANSWER:"""
 
     message = anthropic_client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=1200,  # Increased for detailed setup instructions
+        max_tokens=2000,  # Increased for full menu listings
         messages=[{"role": "user", "content": prompt}]
     )
     
@@ -299,26 +301,36 @@ def generate_general_response(message, available_games, anthropic_client, menu_c
     """Generate response when no game is selected"""
     game_list = "\n".join([f"• {game}" for game in sorted(available_games)])
 
-    prompt = f"""You are a friendly board game rules assistant at The Merry Meeple cafe. The customer just said: "{message}"
+    prompt = f"""You are a friendly assistant at The Merry Meeple, a board game cafe in Crown Heights, Brooklyn. You can help customers with:
+- Browsing the game library and recommending games based on group size, experience, or preferences
+- Explaining game rules and answering rules questions
+- Showing the food & drink menu and recommending items
+- Sharing any active deals or discounts
+- Getting a staff member for orders or any other help
 
-They haven't selected a game yet. Respond naturally and helpfully. If they're asking about games, mention we have these available:
+The customer just said: "{message}"
+
+Respond naturally and helpfully. If they're asking about games, here's our full library:
 {game_list}
 
 MENU & FOOD/DRINK INFORMATION:
 {menu_context}
 
 If the customer asks about food, drinks, the menu, or retail items, answer from the MENU section above.
+When the customer asks for the full menu or what's available, LIST the actual items with names and prices — do not just summarize categories.
 If the customer says they want to order or is ready to order, respond helpfully and end your response with the exact tag: [STAFF_PING:food_order]
 Do NOT take or confirm specific orders — just acknowledge and say staff will come by.
 Do NOT invent menu items that are not listed above.
+Do NOT roleplay physical actions (e.g. "slides over menu", "hands you a card"). You are a text-based assistant, not a person in the room.
 
-Keep your response brief (1-3 sentences). If they haven't mentioned a game, invite them to tell you which game they're playing.
+If the customer is asking about the menu, give a full answer. Otherwise keep your response brief (1-3 sentences).
+End with a helpful "What else can I help with?" rather than always pushing them to pick a game.
 
 Your response:"""
 
     response = anthropic_client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=200,
+        max_tokens=2000,
         messages=[{"role": "user", "content": prompt}]
     )
 
@@ -327,20 +339,20 @@ Your response:"""
 # Main app
 def main():
     # Header
-    st.title("🎲 Rules Assistant")
-    st.markdown("*Hey! I'm here to help with any game rules. Which game are you playing?*")
-    
+    st.title("🎲 The Merry Meeple")
+    st.markdown("*Your game night assistant — browse our game library, learn the rules, check out the menu, and more.*")
+
     # Initialize
     anthropic_client, voyage_client = init_clients()
     game_library = load_game_library()
     menu_context = load_menu()
-    
+
     # Check if library is empty
     if not game_library:
         st.error("📚 No games in library yet!")
         st.info("Staff: Run `python process_rulebooks.py` to add games.")
         return
-    
+
     # Initialize session state
     if 'messages' not in st.session_state:
         st.session_state.messages = []
@@ -350,6 +362,26 @@ def main():
         st.session_state.pending_staff_request = None
     if 'last_question' not in st.session_state:
         st.session_state.last_question = None
+
+    # Quick-action buttons (only show when no messages yet)
+    if not st.session_state.messages:
+        cols = st.columns(4)
+        with cols[0]:
+            if st.button("🎮 Browse games", use_container_width=True):
+                st.session_state.messages.append({"role": "user", "content": "What games do you have?"})
+                st.rerun()
+        with cols[1]:
+            if st.button("📖 Rules help", use_container_width=True):
+                st.session_state.messages.append({"role": "user", "content": "I need help with game rules"})
+                st.rerun()
+        with cols[2]:
+            if st.button("🍽️ See the menu", use_container_width=True):
+                st.session_state.messages.append({"role": "user", "content": "What's on the menu?"})
+                st.rerun()
+        with cols[3]:
+            if st.button("🙋 Get staff help", use_container_width=True):
+                st.session_state.messages.append({"role": "user", "content": "I need help from a staff member"})
+                st.rerun()
     
     # Show current game if selected
     if st.session_state.current_game:
@@ -400,7 +432,7 @@ def main():
                     st.success("✅ Staff has been notified")
     
     # Chat input
-    if prompt := st.chat_input("Ask about the rules, or tell me which game you're playing..."):
+    if prompt := st.chat_input("Ask about rules, the menu, or anything else..."):
         # Store the question for potential staff ping
         st.session_state.last_question = prompt
         
@@ -550,9 +582,7 @@ def main():
     
     # Footer
     st.markdown("---")
-    st.caption("💡 Just tell me which game you're playing, then ask away!")
-    st.caption("🔄 You can switch games anytime by saying \"I'm playing [game name]\"")
-    st.caption("🆘 Can't find an answer? I can request staff assistance for you!")
+    st.caption("Browse games, get rules help, check the menu, or ask for staff assistance.")
 
 if __name__ == "__main__":
     main()
