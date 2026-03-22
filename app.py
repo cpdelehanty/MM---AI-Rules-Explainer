@@ -97,6 +97,13 @@ def load_game_library():
     games = get_all_games()
     return {game['title']: game for game in games}
 
+QUICK_ACTIONS = {
+    "What games do you have?": "browse_games",
+    "I need help with game rules": "rules_help",
+    "What's on the menu?": "see_menu",
+    "I need help from a staff member": "staff_help",
+}
+
 # Load menu (syncs from Google Sheets once per day)
 @st.cache_data(ttl=86400)
 def load_menu():
@@ -104,6 +111,24 @@ def load_menu():
     if should_sync():
         sync_menu_from_sheets()
     return format_menu_for_prompt()
+
+@st.cache_resource(ttl=86400)
+def pregenerate_quick_responses(_anthropic_client, game_list_str, menu_context):
+    """Pre-generate responses for quick-action buttons on startup"""
+    game_names = [g.strip() for g in game_list_str.split("\n") if g.strip()]
+    responses = {}
+    for prompt_text in QUICK_ACTIONS:
+        try:
+            response = generate_general_response(
+                prompt_text,
+                game_names,
+                _anthropic_client,
+                menu_context
+            )
+            responses[prompt_text] = response
+        except Exception:
+            responses[prompt_text] = None
+    return responses
 
 # Detect which game the user is asking about
 def detect_game(message, available_games, anthropic_client):
@@ -384,6 +409,10 @@ def main():
         st.info("Staff: Run `python process_rulebooks.py` to add games.")
         return
 
+    # Pre-generate quick-action responses (cached daily)
+    game_list_key = "\n".join(sorted(game_library.keys()))
+    cached_responses = pregenerate_quick_responses(anthropic_client, game_list_key, menu_context)
+
     # Initialize session state
     if 'messages' not in st.session_state:
         st.session_state.messages = []
@@ -465,9 +494,13 @@ def main():
 
     # Handle pending quick action from button press
     prompt = None
+    is_cached_response = False
     if st.session_state.pending_quick_action:
         prompt = st.session_state.pending_quick_action
         st.session_state.pending_quick_action = None
+        # Check if we have a cached response for this
+        if prompt in cached_responses and cached_responses[prompt]:
+            is_cached_response = True
     else:
         prompt = st.chat_input("Ask about rules, the menu, or anything else...")
 
@@ -480,7 +513,24 @@ def main():
 
         with st.chat_message("user"):
             st.markdown(prompt)
-        
+
+        # Serve cached response instantly for quick-action buttons
+        if is_cached_response:
+            response = cached_responses[prompt]
+            # Check for food order staff ping
+            if "[STAFF_PING:food_order]" in response:
+                response = response.replace("[STAFF_PING:food_order]", "").strip()
+                send_staff_ping(
+                    table_id="Unknown",
+                    game_title=st.session_state.current_game or "N/A",
+                    question="Customer ready to order food/drinks",
+                    reason="food_order"
+                )
+            with st.chat_message("assistant"):
+                st.markdown(response)
+            st.session_state.messages.append({"role": "assistant", "content": response})
+            st.rerun()
+
         # Check if user wants to switch games
         switch_phrases = ["switch to", "change to", "let's play", "we're playing", "now playing", "actually", "instead"]
         is_switching_game = any(phrase in prompt.lower() for phrase in switch_phrases)
