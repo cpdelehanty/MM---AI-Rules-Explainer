@@ -365,26 +365,6 @@ def main():
     if 'pending_quick_action' not in st.session_state:
         st.session_state.pending_quick_action = None
 
-    # Quick-action buttons (only show when no messages yet)
-    if not st.session_state.messages:
-        cols = st.columns(4)
-        with cols[0]:
-            if st.button("🎮 Browse games", use_container_width=True):
-                st.session_state.pending_quick_action = "What games do you have?"
-                st.rerun()
-        with cols[1]:
-            if st.button("📖 Rules help", use_container_width=True):
-                st.session_state.pending_quick_action = "I need help with game rules"
-                st.rerun()
-        with cols[2]:
-            if st.button("🍽️ See the menu", use_container_width=True):
-                st.session_state.pending_quick_action = "What's on the menu?"
-                st.rerun()
-        with cols[3]:
-            if st.button("🙋 Get staff help", use_container_width=True):
-                st.session_state.pending_quick_action = "I need help from a staff member"
-                st.rerun()
-    
     # Show current game if selected
     if st.session_state.current_game:
         st.info(f"🎮 Currently helping with: **{st.session_state.current_game}**")
@@ -433,6 +413,25 @@ def main():
                 elif message.get("staff_requested") == True:
                     st.success("✅ Staff has been notified")
     
+    # Quick-action buttons (always visible above input)
+    cols = st.columns(4)
+    with cols[0]:
+        if st.button("🎮 Browse games", use_container_width=True):
+            st.session_state.pending_quick_action = "What games do you have?"
+            st.rerun()
+    with cols[1]:
+        if st.button("📖 Rules help", use_container_width=True):
+            st.session_state.pending_quick_action = "I need help with game rules"
+            st.rerun()
+    with cols[2]:
+        if st.button("🍽️ See the menu", use_container_width=True):
+            st.session_state.pending_quick_action = "What's on the menu?"
+            st.rerun()
+    with cols[3]:
+        if st.button("🙋 Get staff help", use_container_width=True):
+            st.session_state.pending_quick_action = "I need help from a staff member"
+            st.rerun()
+
     # Handle pending quick action from button press
     prompt = None
     if st.session_state.pending_quick_action:
