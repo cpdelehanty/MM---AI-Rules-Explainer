@@ -30,6 +30,10 @@ PREFERENCE_KEYWORDS = [
     "i like", "i love", "i prefer", "i enjoy", "my favorite",
     "beginner", "first time", "never played", "experienced", "hardcore",
     "birthday", "anniversary", "celebrating",
+    "español", "spanish", "french", "français", "chinese", "中文",
+    "russian", "русский", "arabic", "العربية", "hebrew", "עברית",
+    "creole", "kreyòl", "portuguese", "português",
+    "in spanish", "in french", "en español", "en français",
 ]
 
 def escape_dollars(text):
@@ -54,6 +58,7 @@ Extract any of the following if mentioned (respond with JSON only, or {{}} if no
 - dietary_preferences: any food allergies, restrictions, or preferences
 - game_preferences: types of games they enjoy (strategy, party, cooperative, etc.)
 - experience_level: beginner, intermediate, or experienced
+- language_preference: if they write in or request a non-English language (e.g. "Spanish", "French", "Haitian Creole")
 - notable_info: any personal detail worth remembering (birthday, celebration, etc.)
 
 Only extract what is explicitly stated. Do not infer."""}]
@@ -69,6 +74,7 @@ Only extract what is explicitly stated. Do not infer."""}]
                     game_prefs=data.get("game_preferences"),
                     experience=data.get("experience_level"),
                     notable_info=data.get("notable_info"),
+                    language=data.get("language_preference"),
                 )
     except Exception as e:
         print(f"[PREFERENCE EXTRACTION] Error: {e}")
@@ -290,7 +296,7 @@ def answer_question(question, game_title, voyage_client, anthropic_client, menu_
         instruction = """Provide a clear, direct answer to the specific question asked."""
     
     # Generate answer
-    prompt = f"""You are a helpful board game rules assistant at The Merry Meeple cafe. Answer the customer's question based ONLY on the source documents provided below.
+    prompt = f"""You are a helpful board game rules assistant at The Merry Meeple cafe. Answer the customer's question based ONLY on the source documents provided below. If the customer writes in a non-English language, respond in that language.
 
 The sources may include:
 - Rulebook (official game rules)
@@ -398,6 +404,9 @@ def generate_general_response(message, available_games, anthropic_client, menu_c
 - Showing the food & drink menu and recommending items
 - Sharing any active deals or discounts
 - Getting a staff member for orders or any other help
+- Communicating in the customer's preferred language (Spanish, French, Haitian Creole, Chinese, and more)
+
+If the customer writes in a non-English language, respond in that language.
 
 The customer just said: "{message}"
 
@@ -523,7 +532,7 @@ def main():
 
     # Header
     st.title("🎲 The Merry Meeple")
-    st.markdown("*Your game night assistant — browse our game library, learn the rules, check out the menu, and more.*")
+    st.markdown("*Your game night assistant — browse our game library, learn the rules, check out the menu, and more. Available in multiple languages!*")
 
     # Initialize
     anthropic_client, voyage_client = init_clients()

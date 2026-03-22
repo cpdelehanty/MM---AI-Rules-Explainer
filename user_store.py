@@ -89,7 +89,7 @@ def create_customer(phone):
     try:
         ws = spreadsheet.worksheet("customers")
         now = datetime.now().isoformat()
-        row = [phone, "", now, now, "1", "", "", "", "", "FALSE"]
+        row = [phone, "", now, now, "1", "", "", "", "", "", "FALSE"]
         ws.append_row(row, value_input_option="RAW")
 
         headers = ws.row_values(1)
@@ -214,7 +214,7 @@ def get_visit_history(phone, limit=10):
 # --- Preferences ---
 
 def update_preferences(phone, dietary=None, game_prefs=None,
-                       experience=None, notable_info=None):
+                       experience=None, notable_info=None, language=None):
     """Update preference fields. Merges with existing values."""
     _, spreadsheet = _get_sheets_client()
     if not spreadsheet:
@@ -258,6 +258,10 @@ def update_preferences(phone, dietary=None, game_prefs=None,
                 ws.update_cell(cell.row, col, f"{current}; {notable_info}")
             else:
                 ws.update_cell(cell.row, col, notable_info)
+
+        if language:
+            col = headers.index("language_preference") + 1
+            ws.update_cell(cell.row, col, language)
     except Exception as e:
         print(f"[USER STORE] Error updating preferences: {e}")
 
@@ -298,6 +302,9 @@ def build_history_context(phone):
         lines.append(f"- Returning customer, visit #{total_visits}")
     else:
         lines.append("- First-time customer")
+
+    if customer.get("language_preference"):
+        lines.append(f"- Preferred language: {customer['language_preference']} (respond in this language)")
 
     if customer.get("dietary_preferences"):
         lines.append(f"- Dietary: {customer['dietary_preferences']}")
