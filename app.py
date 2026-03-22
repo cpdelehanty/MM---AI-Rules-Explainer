@@ -18,6 +18,10 @@ load_dotenv()
 # Configuration
 TOP_K_RESULTS = 5
 
+def escape_dollars(text):
+    """Escape $ signs to prevent Streamlit rendering them as LaTeX"""
+    return text.replace("$", "\\$")
+
 def send_staff_ping(table_id, game_title, question, reason="rules_question"):
     """
     Send notification to staff (STUB - to be implemented)
@@ -432,7 +436,7 @@ def main():
     # Display chat history
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            st.markdown(escape_dollars(message["content"]))
             if "pages" in message and message["pages"]:
                 st.caption(f"📄 Pages: {', '.join(map(str, message['pages']))}")
             
@@ -527,7 +531,7 @@ def main():
                     reason="food_order"
                 )
             with st.chat_message("assistant"):
-                st.markdown(response)
+                st.markdown(escape_dollars(response))
             st.session_state.messages.append({"role": "assistant", "content": response})
             st.rerun()
 
@@ -553,7 +557,7 @@ def main():
                             voyage_client,
                             anthropic_client
                         )
-                    st.markdown(intro_message)
+                    st.markdown(escape_dollars(intro_message))
                 
                 st.session_state.messages.append({"role": "assistant", "content": intro_message})
                 st.rerun()
@@ -581,7 +585,7 @@ def main():
                     # Store metadata for display
                     st.session_state.last_answer_meta = {'sources_used': sources_used}
 
-                    st.markdown(answer)
+                    st.markdown(escape_dollars(answer))
                     if pages:
                         st.caption(f"📄 Pages: {', '.join(map(str, pages))}")
 
@@ -619,7 +623,7 @@ def main():
                             question="Customer ready to order food/drinks",
                             reason="food_order"
                         )
-                    st.markdown(response)
+                    st.markdown(escape_dollars(response))
 
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -649,7 +653,7 @@ def main():
                 # Store metadata for display
                 st.session_state.last_answer_meta = {'sources_used': sources_used}
 
-                st.markdown(answer)
+                st.markdown(escape_dollars(answer))
                 if pages:
                     st.caption(f"📄 Pages: {', '.join(map(str, pages))}")
 
