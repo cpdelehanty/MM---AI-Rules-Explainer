@@ -701,8 +701,9 @@ entire profile. Don't mention their phone number. End with asking what you can h
         # Extract preferences from user message (non-blocking)
         extract_preferences(prompt, anthropic_client, st.session_state.customer_phone)
 
-        # Serve cached response instantly for quick-action buttons
-        if is_cached_response:
+        # Serve cached response for quick-action buttons (skip cache if customer has language preference)
+        has_language_pref = (st.session_state.customer_profile or {}).get("language_preference", "")
+        if is_cached_response and not has_language_pref:
             response = cached_responses[prompt]
             # Check for food order staff ping
             if "[STAFF_PING:food_order]" in response:
