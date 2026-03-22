@@ -353,16 +353,19 @@ Respond naturally and helpfully.
 GAME LIBRARY:
 {game_list}
 
-When the customer asks to browse games or what games are available, format the response like this:
-- Group games under category headers (e.g. **Strategy**, **Family**, **Party**, **Card Games**) based on your knowledge of each game
-- List each game as a bullet point under its category
-- Under each bullet, add a short 1-sentence description of the game in italics
-Example format:
+When the customer asks to browse games or what games are available, format the response using markdown. Use bold headers for categories and markdown dash bullets (not bullet characters). Put each item on its own line with a blank line between categories. Follow this format EXACTLY:
+
 **Strategy**
-- Catan
+
+- **Catan**
   *Trade resources and build settlements to dominate the island.*
-- Wingspan
+- **Wingspan**
   *Collect birds and build a thriving wildlife preserve in this engine-building game.*
+
+**Family**
+
+- **Ticket To Ride**
+  *Collect train cards and claim railway routes across the country.*
 
 MENU & FOOD/DRINK INFORMATION:
 {menu_context}
