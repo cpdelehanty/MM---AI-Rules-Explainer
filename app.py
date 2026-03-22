@@ -5,12 +5,18 @@ Conversational chat interface with natural game selection
 
 import streamlit as st
 import os
+import uuid
 import numpy as np
 from anthropic import Anthropic
 import voyageai
 from dotenv import load_dotenv
 from database import init_database, get_all_games, get_game_chunks
 from sync_menu import should_sync, sync_menu_from_sheets, format_menu_for_prompt
+from user_store import (
+    normalize_phone, validate_phone, get_customer, create_customer,
+    increment_visit, log_visit, add_game_to_visit, update_preferences,
+    build_history_context
+)
 
 # Load environment variables
 load_dotenv()
@@ -18,9 +24,54 @@ load_dotenv()
 # Configuration
 TOP_K_RESULTS = 5
 
+PREFERENCE_KEYWORDS = [
+    "allergic", "allergy", "vegetarian", "vegan", "gluten", "dairy",
+    "kosher", "halal", "nut", "celiac", "lactose",
+    "i like", "i love", "i prefer", "i enjoy", "my favorite",
+    "beginner", "first time", "never played", "experienced", "hardcore",
+    "birthday", "anniversary", "celebrating",
+]
+
 def escape_dollars(text):
     """Escape $ signs to prevent Streamlit rendering them as LaTeX"""
     return text.replace("$", "\\$")
+
+def extract_preferences(user_message, anthropic_client, phone):
+    """Extract preferences from user message and save to Google Sheets."""
+    if phone == "ANON" or len(user_message) < 20:
+        return
+    if not any(kw in user_message.lower() for kw in PREFERENCE_KEYWORDS):
+        return
+
+    try:
+        import json as _json
+        response = anthropic_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=200,
+            messages=[{"role": "user", "content": f"""Given this customer message: "{user_message}"
+
+Extract any of the following if mentioned (respond with JSON only, or {{}} if nothing):
+- dietary_preferences: any food allergies, restrictions, or preferences
+- game_preferences: types of games they enjoy (strategy, party, cooperative, etc.)
+- experience_level: beginner, intermediate, or experienced
+- notable_info: any personal detail worth remembering (birthday, celebration, etc.)
+
+Only extract what is explicitly stated. Do not infer."""}]
+        )
+        text = response.content[0].text.strip()
+        # Parse JSON from response
+        if text.startswith("{"):
+            data = _json.loads(text)
+            if data:
+                update_preferences(
+                    phone,
+                    dietary=data.get("dietary_preferences"),
+                    game_prefs=data.get("game_preferences"),
+                    experience=data.get("experience_level"),
+                    notable_info=data.get("notable_info"),
+                )
+    except Exception as e:
+        print(f"[PREFERENCE EXTRACTION] Error: {e}")
 
 def send_staff_ping(table_id, game_title, question, reason="rules_question"):
     """
@@ -184,7 +235,7 @@ def search_chunks(query_embedding, chunks, top_k=TOP_K_RESULTS):
     similarities.sort(reverse=True, key=lambda x: x[0])
     return [chunk for _, chunk in similarities[:top_k]]
 
-def answer_question(question, game_title, voyage_client, anthropic_client, menu_context=""):
+def answer_question(question, game_title, voyage_client, anthropic_client, menu_context="", customer_context=""):
     """Generate answer to rules question"""
     
     # Load game chunks from database
@@ -283,6 +334,8 @@ Do NOT take or confirm specific orders — just acknowledge and say staff will c
 Do NOT invent menu items that are not listed above.
 Do NOT roleplay physical actions (e.g. "slides over menu", "hands you a card"). You are a text-based assistant, not a person in the room.
 
+{customer_context}
+
 CUSTOMER QUESTION: {question}
 
 YOUR ANSWER:"""
@@ -335,7 +388,7 @@ Your welcome message:"""
     intro = message.content[0].text
     return f"Got it! I'm here to help with **{game_title}**.\n\n{intro}\n\nWhat would you like to know?"
 
-def generate_general_response(message, available_games, anthropic_client, menu_context=""):
+def generate_general_response(message, available_games, anthropic_client, menu_context="", customer_context=""):
     """Generate response when no game is selected"""
     game_list = "\n".join([f"• {game}" for game in sorted(available_games)])
 
@@ -389,6 +442,8 @@ Do NOT roleplay physical actions (e.g. "slides over menu", "hands you a card"). 
 If the customer is asking about the menu or games, give a full answer. Otherwise keep your response brief (1-3 sentences).
 End with a helpful "What else can I help with?" rather than always pushing them to pick a game.
 
+{customer_context}
+
 Your response:"""
 
     response = anthropic_client.messages.create(
@@ -399,8 +454,73 @@ Your response:"""
 
     return response.content[0].text
 
+PHONE_GATE_TEXT = """
+We don't store any personal information beyond your phone number, and use this data \
+only to personalize and optimize your experience: we'll recommend games tailored to you, \
+remember dietary preferences, and (once a month max) we'll text you about events that you \
+might be interested in based on your history.
+
+We'll also use this data in aggregate to build a better menu and games library. \
+Returning users get various discounts and perks for allowing us to use your data to \
+make The Merry Meeple the best game cafe on earth.
+
+*If you'd like to opt out, enter **999** to use a generic customer profile.*
+"""
+
 # Main app
 def main():
+    # Initialize session state early (needed for phone gate)
+    if 'customer_phone' not in st.session_state:
+        st.session_state.customer_phone = None
+    if 'customer_profile' not in st.session_state:
+        st.session_state.customer_profile = None
+    if 'visit_id' not in st.session_state:
+        st.session_state.visit_id = None
+    if 'is_returning' not in st.session_state:
+        st.session_state.is_returning = False
+
+    # --- Phone gate ---
+    if st.session_state.customer_phone is None:
+        st.title("🎲 The Merry Meeple")
+        st.markdown("Welcome! Enter your phone number to get started.")
+        st.markdown(PHONE_GATE_TEXT)
+
+        phone_input = st.text_input("Phone number", placeholder="(718) 555-1234")
+
+        if st.button("Let's go!", use_container_width=True):
+            if phone_input.strip() == "999":
+                st.session_state.customer_phone = "ANON"
+                st.session_state.customer_profile = {"opted_out": "TRUE", "display_name": "Guest"}
+                st.session_state.visit_id = str(uuid.uuid4())
+                st.session_state.is_returning = False
+                st.rerun()
+            elif phone_input.strip():
+                normalized = normalize_phone(phone_input)
+                if not validate_phone(normalized):
+                    st.error("Please enter a valid 10-digit phone number.")
+                else:
+                    with st.spinner("Setting up your experience..."):
+                        profile = get_customer(normalized)
+                        if profile:
+                            st.session_state.is_returning = True
+                            st.session_state.customer_profile = profile
+                            increment_visit(normalized)
+                        else:
+                            profile = create_customer(normalized)
+                            st.session_state.customer_profile = profile
+                            st.session_state.is_returning = False
+
+                        st.session_state.customer_phone = normalized
+                        st.session_state.visit_id = str(uuid.uuid4())
+                        log_visit(normalized, st.session_state.visit_id)
+                    st.rerun()
+            else:
+                st.error("Please enter your phone number or 999 to continue as a guest.")
+
+        return  # Nothing else renders until phone is entered
+
+    # --- Main app (after phone gate) ---
+
     # Header
     st.title("🎲 The Merry Meeple")
     st.markdown("*Your game night assistant — browse our game library, learn the rules, check out the menu, and more.*")
@@ -409,6 +529,9 @@ def main():
     anthropic_client, voyage_client = init_clients()
     game_library = load_game_library()
     menu_context = load_menu()
+
+    # Build customer history context for prompts
+    customer_context = build_history_context(st.session_state.customer_phone)
 
     # Check if library is empty
     if not game_library:
@@ -420,7 +543,7 @@ def main():
     game_list_key = "\n".join(sorted(game_library.keys()))
     cached_responses = pregenerate_quick_responses(anthropic_client, game_list_key, menu_context)
 
-    # Initialize session state
+    # Initialize remaining session state
     if 'messages' not in st.session_state:
         st.session_state.messages = []
     if 'current_game' not in st.session_state:
@@ -431,6 +554,41 @@ def main():
         st.session_state.last_question = None
     if 'pending_quick_action' not in st.session_state:
         st.session_state.pending_quick_action = None
+
+    # Welcome back message for returning customers
+    if st.session_state.is_returning and not st.session_state.messages:
+        profile = st.session_state.customer_profile
+        total_visits = profile.get("total_visits", "1")
+        welcome_prompt = f"""You are greeting a returning customer at The Merry Meeple board game cafe.
+Be warm and friendly, not creepy. Keep it to 1-2 sentences.
+
+Customer info:
+- Visit count: {total_visits}
+- Last visit: {profile.get('last_seen', 'unknown')}
+- Dietary preferences: {profile.get('dietary_preferences', 'none noted')}
+- Game preferences: {profile.get('game_preferences', 'none noted')}
+- Notable: {profile.get('notable_info', 'none')}
+
+{customer_context}
+
+Generate a brief, warm welcome back. Reference ONE specific thing from their history
+(a game they played, how many times they've visited, etc.) but don't recite their
+entire profile. Don't mention their phone number. End with asking what you can help with today."""
+
+        try:
+            welcome_response = anthropic_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=200,
+                messages=[{"role": "user", "content": welcome_prompt}]
+            )
+            welcome_msg = welcome_response.content[0].text
+            st.session_state.messages.append({"role": "assistant", "content": welcome_msg})
+        except Exception:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "Welcome back to The Merry Meeple! What can I help you with today?"
+            })
+        st.session_state.is_returning = False  # Don't re-trigger
 
     # Show current game if selected
     if st.session_state.current_game:
@@ -521,6 +679,9 @@ def main():
         with st.chat_message("user"):
             st.markdown(prompt)
 
+        # Extract preferences from user message (non-blocking)
+        extract_preferences(prompt, anthropic_client, st.session_state.customer_phone)
+
         # Serve cached response instantly for quick-action buttons
         if is_cached_response:
             response = cached_responses[prompt]
@@ -551,7 +712,11 @@ def main():
             if detected_game and detected_game != st.session_state.current_game:
                 # Game detected and it's different - switch to it
                 st.session_state.current_game = detected_game
-                
+
+                # Track game in visit history
+                if st.session_state.customer_phone != "ANON" and st.session_state.visit_id:
+                    add_game_to_visit(st.session_state.visit_id, detected_game)
+
                 # Generate game intro
                 with st.chat_message("assistant"):
                     with st.spinner("Loading game info..."):
@@ -574,7 +739,8 @@ def main():
                             st.session_state.current_game,
                             voyage_client,
                             anthropic_client,
-                            menu_context
+                            menu_context,
+                            customer_context
                         )
                     # Check for food order staff ping
                     if "[STAFF_PING:food_order]" in answer:
@@ -615,7 +781,8 @@ def main():
                         prompt,
                         list(game_library.keys()),
                         anthropic_client,
-                        menu_context
+                        menu_context,
+                        customer_context
                     )
                     # Check for food order staff ping
                     if "[STAFF_PING:food_order]" in response:
@@ -642,7 +809,8 @@ def main():
                         st.session_state.current_game,
                         voyage_client,
                         anthropic_client,
-                        menu_context
+                        menu_context,
+                        customer_context
                     )
                 # Check for food order staff ping
                 if "[STAFF_PING:food_order]" in answer:
