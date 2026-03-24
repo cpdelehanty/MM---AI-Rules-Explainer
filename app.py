@@ -791,7 +791,7 @@ def main():
         if st.session_state.customer_profile:
             st.session_state.customer_profile["language_preference"] = selected_lang
         st.session_state.pending_language_cache = selected_lang
-        st.session_state.pending_quick_action = f"Greet me and introduce yourself entirely in {selected_lang}. Do NOT include any English translations or parenthetical English text."
+        st.session_state.pending_lang_greeting = f"Greet me and introduce yourself entirely in {selected_lang}. Do NOT include any English translations or parenthetical English text."
         st.rerun()
 
     # Initialize
@@ -943,15 +943,21 @@ entire profile. Don't mention their phone number. End with asking what you can h
             st.session_state.pending_quick_action = "I need help from a staff member"
             st.rerun()
 
-    # Handle pending quick action from button press
+    # Handle pending quick action from button press or language change
     prompt = None
     is_cached_response = False
-    if st.session_state.pending_quick_action:
+    hide_user_message = False
+    if st.session_state.get("pending_lang_greeting"):
+        prompt = st.session_state.pending_lang_greeting
+        st.session_state.pending_lang_greeting = None
+        hide_user_message = True
+    elif st.session_state.pending_quick_action:
         prompt = st.session_state.pending_quick_action
         st.session_state.pending_quick_action = None
         # Check if we have a cached response for this
         if prompt in cached_responses and cached_responses[prompt]:
             is_cached_response = True
+        hide_user_message = True
     else:
         prompt = st.chat_input(ui.get("chat_placeholder", "Ask about rules, the menu, or anything else..."))
 
@@ -959,8 +965,8 @@ entire profile. Don't mention their phone number. End with asking what you can h
         # Store the question for potential staff ping
         st.session_state.last_question = prompt
 
-        # Only show user message bubble for typed messages, not button presses
-        if not is_cached_response:
+        # Only show user message bubble for typed messages, not button/language presses
+        if not hide_user_message:
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
                 st.markdown(prompt)
