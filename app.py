@@ -201,6 +201,38 @@ def pregenerate_quick_responses(_anthropic_client, game_list_str, menu_context):
             responses[prompt_text] = None
     return responses
 
+def translate_cached_responses(cached_responses, language, anthropic_client):
+    """Translate all cached quick-action responses into the target language.
+    Stores results in session state so it only runs once per language."""
+    cache_key = f"translated_cache_{language}"
+    if cache_key in st.session_state:
+        return st.session_state[cache_key]
+
+    translated = {}
+    for prompt_text, english_response in cached_responses.items():
+        if not english_response:
+            translated[prompt_text] = None
+            continue
+        try:
+            result = anthropic_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                messages=[{"role": "user", "content": f"""Translate the following response into {language}.
+Keep all markdown formatting (bold, italic, bullets, headers) exactly as-is.
+For game titles, keep the original English title but add a {language} translation in parentheses if one exists naturally (e.g. "**Catan** (カタン)" for Japanese).
+For menu item names, keep the original English name but add a brief {language} description.
+Translate everything else including the greeting, descriptions, and sign-off.
+Do NOT add any extra commentary — just output the translated response.
+
+{english_response}"""}]
+            )
+            translated[prompt_text] = result.content[0].text
+        except Exception:
+            translated[prompt_text] = None
+
+    st.session_state[cache_key] = translated
+    return translated
+
 # Detect which game the user is asking about
 def detect_game(message, available_games, anthropic_client):
     """Use Claude to detect which game the user is referring to"""
@@ -307,6 +339,7 @@ def answer_question(question, game_title, voyage_client, anthropic_client, menu_
     
     # Generate answer
     prompt = f"""You are a helpful board game rules assistant at The Merry Meeple cafe. Answer the customer's question based ONLY on the source documents provided below. If the customer writes in a non-English language, respond in that language.
+When responding in a non-English language, keep game titles in their original English but add a translation in parentheses where one exists naturally.
 
 The sources may include:
 - Rulebook (official game rules)
@@ -417,6 +450,8 @@ def generate_general_response(message, available_games, anthropic_client, menu_c
 - Communicating in the customer's preferred language (Spanish, French, Haitian Creole, Chinese, and more)
 
 If the customer writes in a non-English language, respond in that language.
+When responding in a non-English language, keep game titles in their original English but add a translation in parentheses where one exists naturally (e.g. "**Catan** (カタン)" for Japanese, "**Wingspan** (Envergadura)" for Spanish).
+Similarly, keep menu item names in English but translate descriptions and other text.
 
 The customer just said: "{message}"
 
@@ -593,6 +628,8 @@ def main():
                 # Update session profile
                 if st.session_state.customer_profile:
                     st.session_state.customer_profile["language_preference"] = eng_name
+                # Flag to trigger background translation after init
+                st.session_state.pending_language_cache = eng_name
                 # Queue a welcome message in the selected language
                 st.session_state.pending_quick_action = f"Please greet me and introduce yourself in {eng_name}."
                 st.rerun()
@@ -615,6 +652,12 @@ def main():
     # Pre-generate quick-action responses (cached daily)
     game_list_key = "\n".join(sorted(game_library.keys()))
     cached_responses = pregenerate_quick_responses(anthropic_client, game_list_key, menu_context)
+
+    # If a language was just selected, pre-translate cached responses
+    if st.session_state.get("pending_language_cache"):
+        lang = st.session_state.pop("pending_language_cache")
+        if lang != "English":
+            translate_cached_responses(cached_responses, lang, anthropic_client)
 
     # Initialize remaining session state
     if 'messages' not in st.session_state:
@@ -755,10 +798,19 @@ entire profile. Don't mention their phone number. End with asking what you can h
         # Extract preferences from user message (non-blocking)
         extract_preferences(prompt, anthropic_client, st.session_state.customer_phone)
 
-        # Serve cached response for quick-action buttons (skip cache if customer has language preference)
+        # Serve cached response for quick-action buttons
         has_language_pref = (st.session_state.customer_profile or {}).get("language_preference", "")
-        if is_cached_response and not has_language_pref:
+        if is_cached_response and has_language_pref and has_language_pref != "English":
+            # Try translated cache; generate in background if not ready yet
+            translated = translate_cached_responses(cached_responses, has_language_pref, anthropic_client)
+            if translated.get(prompt):
+                response = translated[prompt]
+            else:
+                response = cached_responses[prompt]  # fallback to English
+        elif is_cached_response:
             response = cached_responses[prompt]
+
+        if is_cached_response and response:
             # Check for food order staff ping
             if "[STAFF_PING:food_order]" in response:
                 response = response.replace("[STAFF_PING:food_order]", "").strip()
