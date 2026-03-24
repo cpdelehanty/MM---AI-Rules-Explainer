@@ -198,7 +198,9 @@ def pregenerate_quick_responses(_anthropic_client, game_list_str, menu_context):
                 menu_context
             )
             responses[prompt_text] = response
-        except Exception:
+            print(f"[CACHE] Generated response for: {prompt_text[:30]}...")
+        except Exception as e:
+            print(f"[CACHE] Error generating response for '{prompt_text}': {e}")
             responses[prompt_text] = None
     return responses
 
@@ -742,7 +744,8 @@ def main():
 
     # Pre-generate quick-action responses (cached daily)
     game_list_key = "\n".join(sorted(game_library.keys()))
-    cached_responses = pregenerate_quick_responses(anthropic_client, game_list_key, menu_context)
+    with st.spinner("Preparing your experience..."):
+        cached_responses = pregenerate_quick_responses(anthropic_client, game_list_key, menu_context)
 
     # If a language was just selected, pre-translate cached responses
     if st.session_state.get("pending_language_cache"):
@@ -902,9 +905,20 @@ entire profile. Don't mention their phone number. End with asking what you can h
         elif is_cached_response:
             response = cached_responses[prompt]
 
-        if is_cached_response and response:
+        if is_cached_response:
+            # If cached response is None (generation failed), generate fresh
+            if not response:
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        response = generate_general_response(
+                            prompt,
+                            list(game_library.keys()),
+                            anthropic_client,
+                            menu_context,
+                            customer_context
+                        )
             # Check for food order staff ping
-            if "[STAFF_PING:food_order]" in response:
+            if response and "[STAFF_PING:food_order]" in response:
                 response = response.replace("[STAFF_PING:food_order]", "").strip()
                 send_staff_ping(
                     table_id="Unknown",
@@ -912,10 +926,11 @@ entire profile. Don't mention their phone number. End with asking what you can h
                     question="Customer ready to order food/drinks",
                     reason="food_order"
                 )
-            with st.chat_message("assistant"):
-                st.markdown(escape_dollars(response))
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            st.rerun()
+            if response:
+                with st.chat_message("assistant"):
+                    st.markdown(escape_dollars(response))
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                st.rerun()
 
         # Check if user wants to switch games
         switch_phrases = ["switch to", "change to", "let's play", "we're playing", "now playing", "actually", "instead"]
