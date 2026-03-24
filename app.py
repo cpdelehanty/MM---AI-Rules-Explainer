@@ -543,28 +543,29 @@ def main():
     # Header
     st.title("🎲 The Merry Meeple")
     st.markdown("*Your game night assistant — browse our game library, learn the rules, check out the menu, and more.*")
-    with st.expander("🌍 Available in multiple languages!"):
-        st.markdown("""
-We can chat in any of these languages — just type in yours or ask to switch!
 
-- 🇺🇸 English
-- 🇪🇸 Español (Spanish)
-- 🇫🇷 Français (French)
-- 🇭🇹 Kreyòl Ayisyen (Haitian Creole)
-- 🇨🇳 中文 (Chinese)
-- 🇷🇺 Русский (Russian)
-- 🇧🇩 বাংলা (Bengali)
-- 🇮🇱 עברית (Hebrew)
-- 🇸🇦 العربية (Arabic)
-- 🇰🇷 한국어 (Korean)
-- 🇯🇵 日本語 (Japanese)
-- 🇵🇱 Polski (Polish)
-- 🇮🇹 Italiano (Italian)
-- 🇵🇹 Português (Portuguese)
-- 🇩🇪 Deutsch (German)
-
-*Don't see your language? Try it anyway — we likely support it!*
-""")
+    # Language selector — clickable flags, no reading required
+    LANGUAGES = {
+        "🇺🇸": "English", "🇪🇸": "Spanish", "🇫🇷": "French",
+        "🇭🇹": "Haitian Creole", "🇨🇳": "Chinese", "🇷🇺": "Russian",
+        "🇧🇩": "Bengali", "🇮🇱": "Hebrew", "🇸🇦": "Arabic",
+        "🇰🇷": "Korean", "🇯🇵": "Japanese", "🇵🇱": "Polish",
+        "🇮🇹": "Italian", "🇵🇹": "Portuguese", "🇩🇪": "German",
+    }
+    with st.expander("🌍"):
+        lang_cols = st.columns(5)
+        for i, (flag, lang) in enumerate(LANGUAGES.items()):
+            with lang_cols[i % 5]:
+                if st.button(flag, key=f"lang_{lang}", help=lang, use_container_width=True):
+                    # Save language preference
+                    if st.session_state.customer_phone and st.session_state.customer_phone != "ANON":
+                        update_preferences(st.session_state.customer_phone, language=lang)
+                    # Update session profile
+                    if st.session_state.customer_profile:
+                        st.session_state.customer_profile["language_preference"] = lang
+                    # Queue a welcome message in the selected language
+                    st.session_state.pending_quick_action = f"Please greet me and introduce yourself in {lang}."
+                    st.rerun()
 
     # Initialize
     anthropic_client, voyage_client = init_clients()
