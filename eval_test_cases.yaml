@@ -1,0 +1,46 @@
+# Groundedness Evaluation Test Cases
+# Questions per game to test RAG answer quality
+# Focus on games with the most chunks for meaningful results
+
+- game: "Catan"
+  questions:
+    - "How do you set up the game?"
+    - "What happens when you roll a 7?"
+    - "How does trading work?"
+    - "How do you build a city?"
+    - "What are the longest road rules?"
+
+- game: "Wingspan"
+  questions:
+    - "How do you play a bird card?"
+    - "What are the end-of-round goals?"
+    - "How does the food supply work?"
+    - "What happens at the end of the game?"
+
+- game: "7 Wonders Duel"
+  questions:
+    - "How do you set up the card structure?"
+    - "How do you win by scientific supremacy?"
+    - "What are the wonders and how do you build them?"
+
+- game: "Pandemic"
+  questions:
+    - "How do you cure a disease?"
+    - "What triggers an outbreak?"
+    - "How does the infection rate work?"
+
+- game: "Dominion"
+  questions:
+    - "How does a turn work?"
+    - "What is the buy phase?"
+    - "When does the game end?"
+
+- game: "Carcassonne"
+  questions:
+    - "How do you place tiles?"
+    - "How does scoring work for cities?"
+
+- game: "Streets"
+  questions:
+    - "How do you score a street?"
+    - "What are the different building types?"
