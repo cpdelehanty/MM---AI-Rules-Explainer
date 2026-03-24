@@ -326,7 +326,7 @@ def search_chunks(query_embedding, chunks, top_k=TOP_K_RESULTS):
     similarities.sort(reverse=True, key=lambda x: x[0])
     return [chunk for _, chunk in similarities[:top_k]]
 
-def answer_question(question, game_title, voyage_client, anthropic_client, menu_context="", customer_context=""):
+def answer_question(question, game_title, voyage_client, anthropic_client, menu_context="", customer_context="", language="English"):
     """Generate answer to rules question"""
     
     # Load game chunks from database
@@ -381,8 +381,8 @@ def answer_question(question, game_title, voyage_client, anthropic_client, menu_
         instruction = """Provide a clear, direct answer to the specific question asked."""
     
     # Generate answer
-    prompt = f"""You are a helpful board game rules assistant at The Merry Meeple cafe. Answer the customer's question based ONLY on the source documents provided below. If the customer writes in a non-English language, respond in that language.
-When responding in a non-English language, keep game titles in their original English but add a translation in parentheses where one exists naturally.
+    lang_instruction = f"\nIMPORTANT: Respond entirely in {language}. Keep game titles in English but translate all other text." if language != "English" else ""
+    prompt = f"""You are a helpful board game rules assistant at The Merry Meeple cafe. Answer the customer's question based ONLY on the source documents provided below.{lang_instruction}
 
 The sources may include:
 - Rulebook (official game rules)
@@ -444,7 +444,7 @@ YOUR ANSWER:"""
     # Return metadata about sources used
     return answer, source_pages, sources_used
 
-def generate_game_intro(game_title, voyage_client, anthropic_client):
+def generate_game_intro(game_title, voyage_client, anthropic_client, language="English"):
     """Generate a brief intro about the game from rulebook"""
     
     # Load game chunks from database
@@ -459,12 +459,13 @@ def generate_game_intro(game_title, voyage_client, anthropic_client):
     context = "\n\n".join(context_parts)
     
     # Generate intro
+    lang_instruction = f"\nRespond entirely in {language}. Keep the game title in English." if language != "English" else ""
     prompt = f"""Based on the rulebook intro below, give a warm, brief 2-3 sentence welcome message about {game_title}. Mention:
 - What kind of game it is (theme/genre)
 - Player count
 - Very brief goal/objective
 
-Keep it conversational and inviting. Don't cite page numbers.
+Keep it conversational and inviting. Don't cite page numbers.{lang_instruction}
 
 RULEBOOK INTRO:
 {context}
@@ -478,12 +479,13 @@ Your welcome message:"""
     )
     
     intro = message.content[0].text
-    return f"Got it! I'm here to help with **{game_title}**.\n\n{intro}\n\nWhat would you like to know?"
+    return intro
 
-def generate_general_response(message, available_games, anthropic_client, menu_context="", customer_context=""):
+def generate_general_response(message, available_games, anthropic_client, menu_context="", customer_context="", language="English"):
     """Generate response when no game is selected"""
     game_list = "\n".join([f"• {game}" for game in sorted(available_games)])
 
+    lang_instruction = f"\nIMPORTANT: Respond entirely in {language}. Keep game titles and menu item names in English but translate all other text." if language != "English" else ""
     prompt = f"""You are a friendly assistant at The Merry Meeple, a board game cafe in Crown Heights, Brooklyn. You can help customers with:
 - Browsing the game library and recommending games based on group size, experience, or preferences
 - Explaining game rules and answering rules questions
@@ -491,10 +493,7 @@ def generate_general_response(message, available_games, anthropic_client, menu_c
 - Sharing any active deals or discounts
 - Getting a staff member for orders or any other help
 - Communicating in the customer's preferred language (Spanish, French, Haitian Creole, Chinese, and more)
-
-If the customer writes in a non-English language, respond in that language.
-When responding in a non-English language, keep game titles in their original English but add a translation in parentheses where one exists naturally (e.g. "**Catan** (カタン)" for Japanese, "**Wingspan** (Envergadura)" for Spanish).
-Similarly, keep menu item names in English but translate descriptions and other text.
+{lang_instruction}
 
 The customer just said: "{message}"
 
@@ -992,7 +991,8 @@ entire profile. Don't mention their phone number. End with asking what you can h
                             list(game_library.keys()),
                             anthropic_client,
                             menu_context,
-                            customer_context
+                            customer_context,
+                            language=current_lang
                         )
             # Check for food order staff ping
             if response and "[STAFF_PING:food_order]" in response:
@@ -1033,7 +1033,8 @@ entire profile. Don't mention their phone number. End with asking what you can h
                         intro_message = generate_game_intro(
                             detected_game,
                             voyage_client,
-                            anthropic_client
+                            anthropic_client,
+                            language=current_lang
                         )
                     st.markdown(escape_dollars(intro_message))
                 
@@ -1050,7 +1051,8 @@ entire profile. Don't mention their phone number. End with asking what you can h
                             voyage_client,
                             anthropic_client,
                             menu_context,
-                            customer_context
+                            customer_context,
+                            language=current_lang
                         )
                     # Check for food order staff ping
                     if "[STAFF_PING:food_order]" in answer:
@@ -1092,7 +1094,8 @@ entire profile. Don't mention their phone number. End with asking what you can h
                         list(game_library.keys()),
                         anthropic_client,
                         menu_context,
-                        customer_context
+                        customer_context,
+                        language=current_lang
                     )
                     # Check for food order staff ping
                     if "[STAFF_PING:food_order]" in response:
@@ -1120,7 +1123,8 @@ entire profile. Don't mention their phone number. End with asking what you can h
                         voyage_client,
                         anthropic_client,
                         menu_context,
-                        customer_context
+                        customer_context,
+                        language=current_lang
                     )
                 # Check for food order staff ping
                 if "[STAFF_PING:food_order]" in answer:
