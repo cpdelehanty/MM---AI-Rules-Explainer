@@ -546,21 +546,42 @@ def main():
 
     # Language selector — full list with clickable buttons
     LANGUAGES = [
+        # Tier 1 — dominant languages in Brooklyn
         ("🇺🇸", "English", "English"),
         ("🇪🇸", "Español", "Spanish"),
-        ("🇫🇷", "Français", "French"),
-        ("🇭🇹", "Kreyòl Ayisyen", "Haitian Creole"),
         ("🇨🇳", "中文", "Chinese"),
         ("🇷🇺", "Русский", "Russian"),
-        ("🇧🇩", "বাংলা", "Bengali"),
-        ("🇮🇱", "עברית", "Hebrew"),
-        ("🇸🇦", "العربية", "Arabic"),
-        ("🇰🇷", "한국어", "Korean"),
-        ("🇯🇵", "日本語", "Japanese"),
-        ("🇵🇱", "Polski", "Polish"),
+        ("🏳️", "ייִדיש", "Yiddish"),
+        ("🇭🇹", "Kreyòl Ayisyen", "Haitian Creole"),
+        # Tier 2 — major community languages
         ("🇮🇹", "Italiano", "Italian"),
+        ("🇮🇱", "עברית", "Hebrew"),
+        ("🇵🇱", "Polski", "Polish"),
+        ("🇫🇷", "Français", "French"),
+        ("🇸🇦", "العربية", "Arabic"),
+        ("🇧🇩", "বাংলা", "Bengali"),
+        ("🇵🇰", "اردو", "Urdu"),
+        ("🇹🇷", "Türkçe", "Turkish"),
+        ("🇮🇳", "ਪੰਜਾਬੀ", "Punjabi"),
+        # Tier 3 — significant minority languages
+        ("🇬🇭", "Twi", "Twi"),
+        ("🇸🇳", "Wolof", "Wolof"),
+        ("🇳🇬", "Yorùbá", "Yoruba"),
+        ("🇬🇷", "Ελληνικά", "Greek"),
+        ("🇰🇷", "한국어", "Korean"),
+        ("🇵🇭", "Filipino", "Tagalog"),
+        ("🇦🇱", "Shqip", "Albanian"),
+        ("🇮🇳", "हिन्दी", "Hindi"),
+        ("🇺🇿", "Oʻzbekcha", "Uzbek"),
+        ("🇯🇵", "日本語", "Japanese"),
+        ("🇧🇦", "Bosanski", "Bosnian"),
         ("🇵🇹", "Português", "Portuguese"),
+        ("🇮🇷", "فارسی", "Persian"),
+        ("🇮🇳", "ગુજરાતી", "Gujarati"),
         ("🇩🇪", "Deutsch", "German"),
+        ("🇦🇲", "Հայերեն", "Armenian"),
+        ("🇮🇳", "తెలుగు", "Telugu"),
+        ("🇮🇳", "தமிழ்", "Tamil"),
     ]
     with st.expander("🌍 Available in multiple languages!"):
         for flag, native_name, eng_name in LANGUAGES:
