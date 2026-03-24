@@ -606,22 +606,22 @@ def main():
     if st.session_state.customer_phone is None:
         st.title("🎲 The Merry Meeple")
 
-        # Language selector on login page
-        if 'login_language' not in st.session_state:
-            st.session_state.login_language = "English"
+        # Language selector on login page — dropdown defaulting to English
+        lang_options = [
+            f"{flag} {native_name}" if native_name == eng_name else f"{flag} {native_name} ({eng_name})"
+            for flag, native_name, eng_name in LANGUAGES
+        ]
+        lang_map = {opt: eng_name for opt, (flag, native_name, eng_name) in zip(lang_options, LANGUAGES)}
 
-        with st.expander("🌍 Available in multiple languages!"):
-            for flag, native_name, eng_name in LANGUAGES:
-                label = f"{flag} {native_name} ({eng_name})" if native_name != eng_name else f"{flag} {eng_name}"
-                if st.button(label, key=f"login_lang_{eng_name}", use_container_width=True):
-                    st.session_state.login_language = eng_name
-                    # Start pre-caching translated quick-action responses early
-                    st.session_state.pending_language_cache = eng_name
-                    st.rerun()
-            st.markdown("*Don't see your language? Try typing in it — we likely support it!*")
+        selected_lang_label = st.selectbox(
+            "🌍",
+            options=lang_options,
+            index=0,
+            label_visibility="collapsed"
+        )
+        login_lang = lang_map[selected_lang_label]
 
         # Get translated text if non-English
-        login_lang = st.session_state.login_language
         if login_lang != "English":
             api_key = os.environ.get("ANTHROPIC_API_KEY")
             t = translate_login_text(login_lang, api_key) or {}
