@@ -644,6 +644,26 @@ We'll also use this data in aggregate to build a better menu and games library. 
 
     return translations if translations else None
 
+@st.cache_data(ttl=86400)
+def translate_app_ui(language, _api_key):
+    """Translate main app UI strings (buttons, headers, placeholders). Cached daily per language."""
+    client = Anthropic(api_key=_api_key)
+    try:
+        result = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=500,
+            messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation.
+
+{{"subtitle": "Your game night assistant — browse our game library, learn the rules, check out the menu, and more.", "browse_games": "Browse games", "rules_help": "Rules help", "see_menu": "See the menu", "get_staff": "Get staff help", "chat_placeholder": "Ask about rules, the menu, or anything else...", "currently_helping": "Currently helping with"}}"""}]
+        )
+        text = result.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        return json.loads(text)
+    except Exception as e:
+        print(f"[APP UI TRANSLATE] Error: {e}")
+        return None
+
 # Main app
 def main():
     # Initialize session state early (needed for phone gate)
@@ -734,9 +754,16 @@ def main():
 
     # --- Main app (after phone gate) ---
 
+    # Get translated UI strings for non-English users
+    current_lang = (st.session_state.customer_profile or {}).get("language_preference", "English")
+    if current_lang and current_lang != "English":
+        ui = translate_app_ui(current_lang, os.environ.get("ANTHROPIC_API_KEY")) or {}
+    else:
+        ui = {}
+
     # Header
     st.title("🎲 The Merry Meeple")
-    st.markdown("*Your game night assistant — browse our game library, learn the rules, check out the menu, and more.*")
+    st.markdown(f"*{ui.get('subtitle', 'Your game night assistant — browse our game library, learn the rules, check out the menu, and more.')}*")
 
     # Language selector — dropdown matching login page style
     lang_options = [
@@ -852,7 +879,7 @@ entire profile. Don't mention their phone number. End with asking what you can h
 
     # Show current game if selected
     if st.session_state.current_game:
-        st.info(f"🎮 Currently helping with: **{st.session_state.current_game}**")
+        st.info(f"🎮 {ui.get('currently_helping', 'Currently helping with')}: **{st.session_state.current_game}**")
     
     # Display chat history
     for idx, message in enumerate(st.session_state.messages):
@@ -901,19 +928,19 @@ entire profile. Don't mention their phone number. End with asking what you can h
     # Quick-action buttons (always visible above input)
     cols = st.columns(4)
     with cols[0]:
-        if st.button("🎮 Browse games", use_container_width=True):
+        if st.button(f"🎮 {ui.get('browse_games', 'Browse games')}", use_container_width=True):
             st.session_state.pending_quick_action = "What games do you have?"
             st.rerun()
     with cols[1]:
-        if st.button("📖 Rules help", use_container_width=True):
+        if st.button(f"📖 {ui.get('rules_help', 'Rules help')}", use_container_width=True):
             st.session_state.pending_quick_action = "I need help with game rules"
             st.rerun()
     with cols[2]:
-        if st.button("🍽️ See the menu", use_container_width=True):
+        if st.button(f"🍽️ {ui.get('see_menu', 'See the menu')}", use_container_width=True):
             st.session_state.pending_quick_action = "What's on the menu?"
             st.rerun()
     with cols[3]:
-        if st.button("🙋 Get staff help", use_container_width=True):
+        if st.button(f"🙋 {ui.get('get_staff', 'Get staff help')}", use_container_width=True):
             st.session_state.pending_quick_action = "I need help from a staff member"
             st.rerun()
 
@@ -927,17 +954,17 @@ entire profile. Don't mention their phone number. End with asking what you can h
         if prompt in cached_responses and cached_responses[prompt]:
             is_cached_response = True
     else:
-        prompt = st.chat_input("Ask about rules, the menu, or anything else...")
+        prompt = st.chat_input(ui.get("chat_placeholder", "Ask about rules, the menu, or anything else..."))
 
     if prompt:
         # Store the question for potential staff ping
         st.session_state.last_question = prompt
 
-        # Add user message to chat
-        st.session_state.messages.append({"role": "user", "content": prompt})
-
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        # Only show user message bubble for typed messages, not button presses
+        if not is_cached_response:
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
 
         # Extract preferences from user message (non-blocking)
         extract_preferences(prompt, anthropic_client, st.session_state.customer_phone)
