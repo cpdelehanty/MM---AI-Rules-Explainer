@@ -6,6 +6,7 @@ Conversational chat interface with natural game selection
 import streamlit as st
 import os
 import uuid
+import json
 import numpy as np
 from anthropic import Anthropic
 import voyageai
@@ -585,7 +586,7 @@ def translate_login_text(language, _api_key):
         text = result.content[0].text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        return _json.loads(text)
+        return json.loads(text)
     except Exception as e:
         print(f"[LOGIN TRANSLATE] Error: {e}")
         return None
@@ -682,23 +683,35 @@ def main():
     st.title("🎲 The Merry Meeple")
     st.markdown("*Your game night assistant — browse our game library, learn the rules, check out the menu, and more.*")
 
-    # Language selector — full list with clickable buttons
-    with st.expander("🌍 Available in multiple languages!"):
-        for flag, native_name, eng_name in LANGUAGES:
-            label = f"{flag} {native_name} ({eng_name})" if native_name != eng_name else f"{flag} {eng_name}"
-            if st.button(label, key=f"lang_{eng_name}", use_container_width=True):
-                # Save language preference
-                if st.session_state.customer_phone and st.session_state.customer_phone != "ANON":
-                    update_preferences(st.session_state.customer_phone, language=eng_name)
-                # Update session profile
-                if st.session_state.customer_profile:
-                    st.session_state.customer_profile["language_preference"] = eng_name
-                # Flag to trigger background translation after init
-                st.session_state.pending_language_cache = eng_name
-                # Queue a welcome message in the selected language
-                st.session_state.pending_quick_action = f"Please greet me and introduce yourself in {eng_name}."
-                st.rerun()
-        st.markdown("*Don't see your language? Try typing in it — we likely support it!*")
+    # Language selector — dropdown matching login page style
+    lang_options = [
+        f"{flag} {native_name}" if native_name == eng_name else f"{flag} {native_name} ({eng_name})"
+        for flag, native_name, eng_name in LANGUAGES
+    ]
+    lang_map = {opt: eng_name for opt, (_, __, eng_name) in zip(lang_options, LANGUAGES)}
+
+    # Determine current language index for default selection
+    current_lang = (st.session_state.customer_profile or {}).get("language_preference", "English")
+    current_idx = next((i for i, (_, __, eng) in enumerate(LANGUAGES) if eng == current_lang), 0)
+
+    selected_lang_label = st.selectbox(
+        "🌍",
+        options=lang_options,
+        index=current_idx,
+        key="main_lang_selector",
+        label_visibility="collapsed"
+    )
+    selected_lang = lang_map[selected_lang_label]
+
+    # Handle language change
+    if selected_lang != current_lang:
+        if st.session_state.customer_phone and st.session_state.customer_phone != "ANON":
+            update_preferences(st.session_state.customer_phone, language=selected_lang)
+        if st.session_state.customer_profile:
+            st.session_state.customer_profile["language_preference"] = selected_lang
+        st.session_state.pending_language_cache = selected_lang
+        st.session_state.pending_quick_action = f"Please greet me and introduce yourself in {selected_lang}."
+        st.rerun()
 
     # Initialize
     anthropic_client, voyage_client = init_clients()
@@ -864,6 +877,7 @@ entire profile. Don't mention their phone number. End with asking what you can h
         extract_preferences(prompt, anthropic_client, st.session_state.customer_phone)
 
         # Serve cached response for quick-action buttons
+        response = None
         has_language_pref = (st.session_state.customer_profile or {}).get("language_preference", "")
         if is_cached_response and has_language_pref and has_language_pref != "English":
             # Try translated cache; generate in background if not ready yet
