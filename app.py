@@ -557,7 +557,7 @@ remember dietary preferences, and (once a month max) we'll text you about events
 might be interested in based on your history.
 
 We'll also use this data in aggregate to build a better menu and games library. \
-**Returning users get various discounts and perks** for allowing us to use your data to \
+**Returning users get discounts and perks** for allowing us to use your data to \
 make The Merry Meeple the best game cafe on earth.
 
 *If you'd like to opt out, enter **999** to use a generic customer profile.*
@@ -633,7 +633,7 @@ def translate_login_text(language, _api_key):
 
 We don't store any personal information beyond your phone number, and use this data only to personalize and optimize your experience: we'll recommend games tailored to you, remember dietary preferences, and (once a month max) we'll text you about events that you might be interested in based on your history.
 
-We'll also use this data in aggregate to build a better menu and games library. **Returning users get various discounts and perks** for allowing us to use your data to make The Merry Meeple the best game cafe on earth.
+We'll also use this data in aggregate to build a better menu and games library. **Returning users get discounts and perks** for allowing us to use your data to make The Merry Meeple the best game cafe on earth.
 
 *If you'd like to opt out, enter **999** to use a generic customer profile.*"""}]
         )
