@@ -725,7 +725,7 @@ def main():
         if st.session_state.customer_profile:
             st.session_state.customer_profile["language_preference"] = selected_lang
         st.session_state.pending_language_cache = selected_lang
-        st.session_state.pending_quick_action = f"Please greet me and introduce yourself in {selected_lang}."
+        st.session_state.pending_quick_action = f"Greet me and introduce yourself entirely in {selected_lang}. Do NOT include any English translations or parenthetical English text."
         st.rerun()
 
     # Initialize
@@ -783,7 +783,8 @@ Customer info:
 
 Generate a brief, warm welcome back. Reference ONE specific thing from their history
 (a game they played, how many times they've visited, etc.) but don't recite their
-entire profile. Don't mention their phone number. End with asking what you can help with today."""
+entire profile. Don't mention their phone number. End with asking what you can help with today.
+{f'Respond entirely in {profile.get("language_preference")}. Do NOT include English translations or parenthetical English text.' if profile.get("language_preference") and profile.get("language_preference") != "English" else ''}"""
 
         try:
             welcome_response = anthropic_client.messages.create(
