@@ -521,6 +521,75 @@ make The Merry Meeple the best game cafe on earth.
 *If you'd like to opt out, enter **999** to use a generic customer profile.*
 """
 
+# Supported languages (shared between login page and main app)
+LANGUAGES = [
+    # Tier 1 — dominant languages in Brooklyn
+    ("🇺🇸", "English", "English"),
+    ("🇪🇸", "Español", "Spanish"),
+    ("🇨🇳", "中文", "Chinese"),
+    ("🇷🇺", "Русский", "Russian"),
+    ("🏳️", "ייִדיש", "Yiddish"),
+    ("🇭🇹", "Kreyòl Ayisyen", "Haitian Creole"),
+    # Tier 2 — major community languages
+    ("🇮🇹", "Italiano", "Italian"),
+    ("🇮🇱", "עברית", "Hebrew"),
+    ("🇵🇱", "Polski", "Polish"),
+    ("🇫🇷", "Français", "French"),
+    ("🇸🇦", "العربية", "Arabic"),
+    ("🇧🇩", "বাংলা", "Bengali"),
+    ("🇵🇰", "اردو", "Urdu"),
+    ("🇹🇷", "Türkçe", "Turkish"),
+    ("🇮🇳", "ਪੰਜਾਬੀ", "Punjabi"),
+    # Tier 3 — significant minority languages
+    ("🇬🇭", "Twi", "Twi"),
+    ("🇸🇳", "Wolof", "Wolof"),
+    ("🇳🇬", "Yorùbá", "Yoruba"),
+    ("🇬🇷", "Ελληνικά", "Greek"),
+    ("🇰🇷", "한국어", "Korean"),
+    ("🇵🇭", "Filipino", "Tagalog"),
+    ("🇦🇱", "Shqip", "Albanian"),
+    ("🇮🇳", "हिन्दी", "Hindi"),
+    ("🇺🇿", "Oʻzbekcha", "Uzbek"),
+    ("🇯🇵", "日本語", "Japanese"),
+    ("🇧🇦", "Bosanski", "Bosnian"),
+    ("🇵🇹", "Português", "Portuguese"),
+    ("🇮🇷", "فارسی", "Persian"),
+    ("🇮🇳", "ગુજરાતી", "Gujarati"),
+    ("🇩🇪", "Deutsch", "German"),
+    ("🇦🇲", "Հայերեն", "Armenian"),
+    ("🇮🇳", "తెలుగు", "Telugu"),
+    ("🇮🇳", "தமிழ்", "Tamil"),
+]
+
+@st.cache_data(ttl=86400)
+def translate_login_text(language, _api_key):
+    """Translate login page static text. Cached daily per language."""
+    client = Anthropic(api_key=_api_key)
+    try:
+        result = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=500,
+            messages=[{"role": "user", "content": f"""Translate the following UI strings into {language}. Return ONLY a JSON object with the same keys, translated values. No markdown, no explanation.
+
+{{
+  "welcome": "Welcome! Enter your phone number to get started.",
+  "phone_label": "Phone number",
+  "phone_placeholder": "(718) 555-1234",
+  "lets_go": "Let's go!",
+  "error_invalid": "Please enter a valid 10-digit phone number.",
+  "error_empty": "Please enter your phone number or 999 to continue as a guest.",
+  "setting_up": "Setting up your experience...",
+  "privacy_text": "We don't store any personal information beyond your phone number, and use this data only to personalize and optimize your experience: we'll recommend games tailored to you, remember dietary preferences, and (once a month max) we'll text you about events that you might be interested in based on your history.\\n\\nWe'll also use this data in aggregate to build a better menu and games library. Returning users get various discounts and perks for allowing us to use your data to make The Merry Meeple the best game cafe on earth.\\n\\n*If you'd like to opt out, enter **999** to use a generic customer profile.*"
+}}"""}]
+        )
+        text = result.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        return _json.loads(text)
+    except Exception as e:
+        print(f"[LOGIN TRANSLATE] Error: {e}")
+        return None
+
 # Main app
 def main():
     # Initialize session state early (needed for phone gate)
@@ -536,24 +605,52 @@ def main():
     # --- Phone gate ---
     if st.session_state.customer_phone is None:
         st.title("🎲 The Merry Meeple")
-        st.markdown("Welcome! Enter your phone number to get started.")
-        st.markdown(PHONE_GATE_TEXT)
 
-        phone_input = st.text_input("Phone number", placeholder="(718) 555-1234")
+        # Language selector on login page
+        if 'login_language' not in st.session_state:
+            st.session_state.login_language = "English"
 
-        if st.button("Let's go!", use_container_width=True):
+        with st.expander("🌍 Available in multiple languages!"):
+            for flag, native_name, eng_name in LANGUAGES:
+                label = f"{flag} {native_name} ({eng_name})" if native_name != eng_name else f"{flag} {eng_name}"
+                if st.button(label, key=f"login_lang_{eng_name}", use_container_width=True):
+                    st.session_state.login_language = eng_name
+                    # Start pre-caching translated quick-action responses early
+                    st.session_state.pending_language_cache = eng_name
+                    st.rerun()
+            st.markdown("*Don't see your language? Try typing in it — we likely support it!*")
+
+        # Get translated text if non-English
+        login_lang = st.session_state.login_language
+        if login_lang != "English":
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            t = translate_login_text(login_lang, api_key) or {}
+        else:
+            t = {}
+
+        st.markdown(t.get("welcome", "Welcome! Enter your phone number to get started."))
+        st.markdown(t.get("privacy_text", PHONE_GATE_TEXT))
+
+        phone_input = st.text_input(
+            t.get("phone_label", "Phone number"),
+            placeholder=t.get("phone_placeholder", "(718) 555-1234")
+        )
+
+        if st.button(t.get("lets_go", "Let's go!"), use_container_width=True):
             if phone_input.strip() == "999":
                 st.session_state.customer_phone = "ANON"
                 st.session_state.customer_profile = {"opted_out": "TRUE", "display_name": "Guest"}
+                if login_lang != "English":
+                    st.session_state.customer_profile["language_preference"] = login_lang
                 st.session_state.visit_id = str(uuid.uuid4())
                 st.session_state.is_returning = False
                 st.rerun()
             elif phone_input.strip():
                 normalized = normalize_phone(phone_input)
                 if not validate_phone(normalized):
-                    st.error("Please enter a valid 10-digit phone number.")
+                    st.error(t.get("error_invalid", "Please enter a valid 10-digit phone number."))
                 else:
-                    with st.spinner("Setting up your experience..."):
+                    with st.spinner(t.get("setting_up", "Setting up your experience...")):
                         profile = get_customer(normalized)
                         if profile:
                             st.session_state.is_returning = True
@@ -564,12 +661,18 @@ def main():
                             st.session_state.customer_profile = profile
                             st.session_state.is_returning = False
 
+                        # Save language preference from login
+                        if login_lang != "English":
+                            update_preferences(normalized, language=login_lang)
+                            if st.session_state.customer_profile:
+                                st.session_state.customer_profile["language_preference"] = login_lang
+
                         st.session_state.customer_phone = normalized
                         st.session_state.visit_id = str(uuid.uuid4())
                         log_visit(normalized, st.session_state.visit_id)
                     st.rerun()
             else:
-                st.error("Please enter your phone number or 999 to continue as a guest.")
+                st.error(t.get("error_empty", "Please enter your phone number or 999 to continue as a guest."))
 
         return  # Nothing else renders until phone is entered
 
@@ -580,44 +683,6 @@ def main():
     st.markdown("*Your game night assistant — browse our game library, learn the rules, check out the menu, and more.*")
 
     # Language selector — full list with clickable buttons
-    LANGUAGES = [
-        # Tier 1 — dominant languages in Brooklyn
-        ("🇺🇸", "English", "English"),
-        ("🇪🇸", "Español", "Spanish"),
-        ("🇨🇳", "中文", "Chinese"),
-        ("🇷🇺", "Русский", "Russian"),
-        ("🏳️", "ייִדיש", "Yiddish"),
-        ("🇭🇹", "Kreyòl Ayisyen", "Haitian Creole"),
-        # Tier 2 — major community languages
-        ("🇮🇹", "Italiano", "Italian"),
-        ("🇮🇱", "עברית", "Hebrew"),
-        ("🇵🇱", "Polski", "Polish"),
-        ("🇫🇷", "Français", "French"),
-        ("🇸🇦", "العربية", "Arabic"),
-        ("🇧🇩", "বাংলা", "Bengali"),
-        ("🇵🇰", "اردو", "Urdu"),
-        ("🇹🇷", "Türkçe", "Turkish"),
-        ("🇮🇳", "ਪੰਜਾਬੀ", "Punjabi"),
-        # Tier 3 — significant minority languages
-        ("🇬🇭", "Twi", "Twi"),
-        ("🇸🇳", "Wolof", "Wolof"),
-        ("🇳🇬", "Yorùbá", "Yoruba"),
-        ("🇬🇷", "Ελληνικά", "Greek"),
-        ("🇰🇷", "한국어", "Korean"),
-        ("🇵🇭", "Filipino", "Tagalog"),
-        ("🇦🇱", "Shqip", "Albanian"),
-        ("🇮🇳", "हिन्दी", "Hindi"),
-        ("🇺🇿", "Oʻzbekcha", "Uzbek"),
-        ("🇯🇵", "日本語", "Japanese"),
-        ("🇧🇦", "Bosanski", "Bosnian"),
-        ("🇵🇹", "Português", "Portuguese"),
-        ("🇮🇷", "فارسی", "Persian"),
-        ("🇮🇳", "ગુજરાતી", "Gujarati"),
-        ("🇩🇪", "Deutsch", "German"),
-        ("🇦🇲", "Հայերեն", "Armenian"),
-        ("🇮🇳", "తెలుగు", "Telugu"),
-        ("🇮🇳", "தமிழ்", "Tamil"),
-    ]
     with st.expander("🌍 Available in multiple languages!"):
         for flag, native_name, eng_name in LANGUAGES:
             label = f"{flag} {native_name} ({eng_name})" if native_name != eng_name else f"{flag} {eng_name}"
