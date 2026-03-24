@@ -566,30 +566,41 @@ LANGUAGES = [
 def translate_login_text(language, _api_key):
     """Translate login page static text. Cached daily per language."""
     client = Anthropic(api_key=_api_key)
+    # Translate short UI strings
     try:
         result = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=500,
-            messages=[{"role": "user", "content": f"""Translate the following UI strings into {language}. Return ONLY a JSON object with the same keys, translated values. No markdown, no explanation.
+            max_tokens=1000,
+            messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation.
 
-{{
-  "welcome": "Welcome! Enter your phone number to get started.",
-  "phone_label": "Phone number",
-  "phone_placeholder": "(718) 555-1234",
-  "lets_go": "Let's go!",
-  "error_invalid": "Please enter a valid 10-digit phone number.",
-  "error_empty": "Please enter your phone number or 999 to continue as a guest.",
-  "setting_up": "Setting up your experience...",
-  "privacy_text": "We don't store any personal information beyond your phone number, and use this data only to personalize and optimize your experience: we'll recommend games tailored to you, remember dietary preferences, and (once a month max) we'll text you about events that you might be interested in based on your history.\\n\\nWe'll also use this data in aggregate to build a better menu and games library. Returning users get various discounts and perks for allowing us to use your data to make The Merry Meeple the best game cafe on earth.\\n\\n*If you'd like to opt out, enter **999** to use a generic customer profile.*"
-}}"""}]
+{{"welcome": "Welcome! Enter your phone number to get started.", "phone_label": "Phone number", "phone_placeholder": "(718) 555-1234", "lets_go": "Let's go!", "error_invalid": "Please enter a valid 10-digit phone number.", "error_empty": "Please enter your phone number or 999 to continue as a guest.", "setting_up": "Setting up your experience..."}}"""}]
         )
         text = result.content[0].text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        return json.loads(text)
+        translations = json.loads(text)
     except Exception as e:
-        print(f"[LOGIN TRANSLATE] Error: {e}")
-        return None
+        print(f"[LOGIN TRANSLATE] Short strings error: {e}")
+        translations = {}
+
+    # Translate the privacy text separately (it's long and has markdown)
+    try:
+        result2 = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": f"""Translate this paragraph into {language}. Keep the markdown formatting (* for italic, ** for bold). Output ONLY the translated text, nothing else.
+
+We don't store any personal information beyond your phone number, and use this data only to personalize and optimize your experience: we'll recommend games tailored to you, remember dietary preferences, and (once a month max) we'll text you about events that you might be interested in based on your history.
+
+We'll also use this data in aggregate to build a better menu and games library. Returning users get various discounts and perks for allowing us to use your data to make The Merry Meeple the best game cafe on earth.
+
+*If you'd like to opt out, enter **999** to use a generic customer profile.*"""}]
+        )
+        translations["privacy_text"] = result2.content[0].text.strip()
+    except Exception as e:
+        print(f"[LOGIN TRANSLATE] Privacy text error: {e}")
+
+    return translations if translations else None
 
 # Main app
 def main():
