@@ -643,12 +643,14 @@ def main():
         st.markdown(t.get("welcome", "Welcome! Enter your phone number to get started."))
         st.markdown(t.get("privacy_text", PHONE_GATE_TEXT))
 
-        phone_input = st.text_input(
-            t.get("phone_label", "Phone number"),
-            placeholder=t.get("phone_placeholder", "(718) 555-1234")
-        )
+        with st.form("phone_gate_form"):
+            phone_input = st.text_input(
+                t.get("phone_label", "Phone number"),
+                placeholder=t.get("phone_placeholder", "(718) 555-1234")
+            )
+            submitted = st.form_submit_button(t.get("lets_go", "Let's go!"), use_container_width=True)
 
-        if st.button(t.get("lets_go", "Let's go!"), use_container_width=True):
+        if submitted:
             if phone_input.strip() == "999":
                 st.session_state.customer_phone = "ANON"
                 st.session_state.customer_profile = {"opted_out": "TRUE", "display_name": "Guest"}
