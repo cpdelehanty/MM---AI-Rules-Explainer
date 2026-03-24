@@ -1047,19 +1047,56 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 if st.session_state.customer_phone != "ANON" and st.session_state.visit_id:
                     add_game_to_visit(st.session_state.visit_id, detected_game)
 
-                # Generate game intro
-                with st.chat_message("assistant"):
-                    with st.spinner("Loading game info..."):
-                        intro_message = generate_game_intro(
-                            detected_game,
-                            voyage_client,
-                            anthropic_client,
-                            language=current_lang
-                        )
-                    st.markdown(escape_dollars(intro_message))
-                
-                st.session_state.messages.append({"role": "assistant", "content": intro_message})
-                st.rerun()
+                # Check if the message also contains a question (not just "we're playing X")
+                question_indicators = ["?", "how", "what", "when", "where", "which", "who", "why",
+                                       "can i", "do i", "does", "is it", "are there", "tell me", "explain"]
+                has_question = any(ind in prompt.lower() for ind in question_indicators)
+
+                if has_question:
+                    # Answer the question directly — skip the generic intro
+                    with st.chat_message("assistant"):
+                        with st.spinner("Checking the rulebook..."):
+                            answer, pages, sources_used = answer_question(
+                                prompt,
+                                detected_game,
+                                voyage_client,
+                                anthropic_client,
+                                menu_context,
+                                customer_context,
+                                language=current_lang
+                            )
+                        if "[STAFF_PING:food_order]" in answer:
+                            answer = answer.replace("[STAFF_PING:food_order]", "").strip()
+                            send_staff_ping(
+                                table_id="Unknown",
+                                game_title=detected_game,
+                                question="Customer ready to order food/drinks",
+                                reason="food_order"
+                            )
+                        st.session_state.last_answer_meta = {'sources_used': sources_used}
+                        st.markdown(escape_dollars(answer))
+                        if pages:
+                            st.caption(f"📄 {ui.get('pages', 'Pages')}: {', '.join(map(str, pages))}")
+
+                    msg = {"role": "assistant", "content": answer}
+                    if pages:
+                        msg["pages"] = pages
+                    st.session_state.messages.append(msg)
+                    if "request staff assistance" in answer.lower():
+                        st.rerun()
+                else:
+                    # Just selecting a game — show intro
+                    with st.chat_message("assistant"):
+                        with st.spinner("Loading game info..."):
+                            intro_message = generate_game_intro(
+                                detected_game,
+                                voyage_client,
+                                anthropic_client,
+                                language=current_lang
+                            )
+                        st.markdown(escape_dollars(intro_message))
+                    st.session_state.messages.append({"role": "assistant", "content": intro_message})
+                    st.rerun()
             
             elif detected_game and detected_game == st.session_state.current_game:
                 # Same game detected - just answer the question
