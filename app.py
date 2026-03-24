@@ -840,25 +840,39 @@ def main():
     if 'pending_quick_action' not in st.session_state:
         st.session_state.pending_quick_action = None
 
-    # Welcome back message for returning customers
+    # Welcome message based on customer tier
     if st.session_state.is_returning and not st.session_state.messages:
         profile = st.session_state.customer_profile
-        total_visits = profile.get("total_visits", "1")
-        welcome_prompt = f"""You are greeting a returning customer at The Merry Meeple board game cafe.
-Be warm and friendly, not creepy. Keep it to 1-2 sentences.
+        total_visits = int(profile.get("total_visits", "1"))
 
-Customer info:
-- Visit count: {total_visits}
-- Last visit: {profile.get('last_seen', 'unknown')}
-- Dietary preferences: {profile.get('dietary_preferences', 'none noted')}
-- Game preferences: {profile.get('game_preferences', 'none noted')}
+        # Determine customer tier
+        if total_visits <= 2:
+            tier = "returning"
+            tier_instruction = """This is a RETURNING customer (visited once or twice before).
+Tone: Warm, glad to see them again. Brief — just acknowledge them and offer help.
+Example vibe: "Welcome back to The Merry Meeple! Let me know if I can help with anything."
+Do NOT mention visit counts or specific dates. If they have a game preference on file,
+you can casually mention it (e.g. "Up for another round of Catan, or trying something new?")
+but keep it light — don't recite their profile."""
+        else:
+            tier = "regular"
+            tier_instruction = """This is a REGULAR customer (a familiar face).
+Tone: Relaxed, like greeting a friend. Keep it short — they know the drill.
+Example vibe: "Hey, welcome back! What are we playing today?"
+Do NOT mention visit counts, dates, or how often they come. You can reference
+a game or food preference naturally if it fits, but don't overdo it.
+Make them feel valued without making it feel like surveillance."""
+
+        welcome_prompt = f"""You are greeting a customer at The Merry Meeple board game cafe.
+
+{tier_instruction}
+
+Customer preferences (use sparingly and naturally, do NOT list these back):
+- Dietary: {profile.get('dietary_preferences', 'none noted')}
+- Games: {profile.get('game_preferences', 'none noted')}
 - Notable: {profile.get('notable_info', 'none')}
 
-{customer_context}
-
-Generate a brief, warm welcome back. Reference ONE specific thing from their history
-(a game they played, how many times they've visited, etc.) but don't recite their
-entire profile. Don't mention their phone number. End with asking what you can help with today.
+Keep it to 1-2 sentences. Don't mention their phone number.
 {f'Respond entirely in {profile.get("language_preference")}. Do NOT include English translations or parenthetical English text.' if profile.get("language_preference") and profile.get("language_preference") != "English" else ''}"""
 
         try:
