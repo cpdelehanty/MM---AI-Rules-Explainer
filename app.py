@@ -653,7 +653,7 @@ def translate_app_ui(language, _api_key):
             max_tokens=500,
             messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation.
 
-{{"subtitle": "Your game night assistant — browse our game library, learn the rules, check out the menu, and more.", "browse_games": "Browse games", "rules_help": "Rules help", "see_menu": "See the menu", "get_staff": "Get staff help", "chat_placeholder": "Ask about rules, the menu, or anything else...", "currently_helping": "Currently helping with"}}"""}]
+{{"subtitle": "Your game night assistant — browse our game library, learn the rules, check out the menu, and more.", "browse_games": "Browse games", "rules_help": "Rules help", "see_menu": "See the menu", "get_staff": "Get staff help", "chat_placeholder": "Ask about rules, the menu, or anything else...", "currently_helping": "Currently helping with", "pages": "Pages"}}"""}]
         )
         text = result.content[0].text.strip()
         if text.startswith("```"):
@@ -885,7 +885,7 @@ entire profile. Don't mention their phone number. End with asking what you can h
         with st.chat_message(message["role"]):
             st.markdown(escape_dollars(message["content"]))
             if "pages" in message and message["pages"]:
-                st.caption(f"📄 Pages: {', '.join(map(str, message['pages']))}")
+                st.caption(f"📄 {ui.get('pages', 'Pages')}: {', '.join(map(str, message['pages']))}")
             
             # Check if this message offers staff assistance
             if message["role"] == "assistant" and "request staff assistance" in message["content"].lower():
@@ -1068,7 +1068,7 @@ entire profile. Don't mention their phone number. End with asking what you can h
 
                     st.markdown(escape_dollars(answer))
                     if pages:
-                        st.caption(f"📄 Pages: {', '.join(map(str, pages))}")
+                        st.caption(f"📄 {ui.get('pages', 'Pages')}: {', '.join(map(str, pages))}")
 
                     # Show source types if multiple document types were used
                     if len(sources_used) > 1:
@@ -1140,7 +1140,7 @@ entire profile. Don't mention their phone number. End with asking what you can h
 
                 st.markdown(escape_dollars(answer))
                 if pages:
-                    st.caption(f"📄 Pages: {', '.join(map(str, pages))}")
+                    st.caption(f"📄 {ui.get('pages', 'Pages')}: {', '.join(map(str, pages))}")
 
                 # Show source types if multiple document types were used
                 if len(sources_used) > 1:
