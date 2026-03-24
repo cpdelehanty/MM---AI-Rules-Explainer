@@ -542,7 +542,29 @@ def main():
 
     # Header
     st.title("🎲 The Merry Meeple")
-    st.markdown("*Your game night assistant — browse our game library, learn the rules, check out the menu, and more. Available in multiple languages!*")
+    st.markdown("*Your game night assistant — browse our game library, learn the rules, check out the menu, and more.*")
+    with st.expander("🌍 Available in multiple languages!"):
+        st.markdown("""
+We can chat in any of these languages — just type in yours or ask to switch!
+
+- 🇺🇸 English
+- 🇪🇸 Español (Spanish)
+- 🇫🇷 Français (French)
+- 🇭🇹 Kreyòl Ayisyen (Haitian Creole)
+- 🇨🇳 中文 (Chinese)
+- 🇷🇺 Русский (Russian)
+- 🇧🇩 বাংলা (Bengali)
+- 🇮🇱 עברית (Hebrew)
+- 🇸🇦 العربية (Arabic)
+- 🇰🇷 한국어 (Korean)
+- 🇯🇵 日本語 (Japanese)
+- 🇵🇱 Polski (Polish)
+- 🇮🇹 Italiano (Italian)
+- 🇵🇹 Português (Portuguese)
+- 🇩🇪 Deutsch (German)
+
+*Don't see your language? Try it anyway — we likely support it!*
+""")
 
     # Initialize
     anthropic_client, voyage_client = init_clients()
