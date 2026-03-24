@@ -204,23 +204,14 @@ def pregenerate_quick_responses(_anthropic_client, game_list_str, menu_context):
             responses[prompt_text] = None
     return responses
 
-def translate_cached_responses(cached_responses, language, anthropic_client):
-    """Translate all cached quick-action responses into the target language.
-    Stores results in session state so it only runs once per language."""
-    cache_key = f"translated_cache_{language}"
-    if cache_key in st.session_state:
-        return st.session_state[cache_key]
-
-    translated = {}
-    for prompt_text, english_response in cached_responses.items():
-        if not english_response:
-            translated[prompt_text] = None
-            continue
-        try:
-            result = anthropic_client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=2000,
-                messages=[{"role": "user", "content": f"""Translate the following response into {language}.
+def _translate_single_response(prompt_text, english_response, language, api_key, results_dict):
+    """Translate a single cached response (runs in background thread)."""
+    try:
+        client = Anthropic(api_key=api_key)
+        result = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": f"""Translate the following response into {language}.
 Keep all markdown formatting (bold, italic, bullets, headers) exactly as-is.
 For game titles, keep the original English title but add a {language} translation in parentheses if one exists naturally (e.g. "**Catan** (カタン)" for Japanese).
 For menu item names, keep the original English name but add a brief {language} description.
@@ -228,13 +219,62 @@ Translate everything else including the greeting, descriptions, and sign-off.
 Do NOT add any extra commentary — just output the translated response.
 
 {english_response}"""}]
-            )
-            translated[prompt_text] = result.content[0].text
-        except Exception:
-            translated[prompt_text] = None
+        )
+        results_dict[prompt_text] = result.content[0].text
+        print(f"[BG TRANSLATE] Done: {prompt_text[:30]}...")
+    except Exception as e:
+        print(f"[BG TRANSLATE] Error for '{prompt_text[:30]}': {e}")
+        results_dict[prompt_text] = None
 
-    st.session_state[cache_key] = translated
-    return translated
+def start_background_translation(cached_responses, language, api_key):
+    """Kick off parallel background threads to translate all cached responses."""
+    import threading
+    cache_key = f"translated_cache_{language}"
+
+    # Already translated or in progress
+    if cache_key in st.session_state:
+        return
+    if st.session_state.get(f"_translating_{language}"):
+        return
+
+    # Shared dict for results (thread-safe for item assignment)
+    results = {}
+    st.session_state[f"_translating_{language}"] = True
+    st.session_state[f"_translate_results_{language}"] = results
+
+    threads = []
+    for prompt_text, english_response in cached_responses.items():
+        if not english_response:
+            results[prompt_text] = None
+            continue
+        t = threading.Thread(
+            target=_translate_single_response,
+            args=(prompt_text, english_response, language, api_key, results)
+        )
+        t.start()
+        threads.append(t)
+
+    # Monitor thread in a separate thread so it doesn't block
+    def _finalize():
+        for t in threads:
+            t.join()
+        # Can't write st.session_state from a non-main thread,
+        # but the results dict is already shared via reference
+        print(f"[BG TRANSLATE] All translations for {language} complete")
+
+    threading.Thread(target=_finalize, daemon=True).start()
+
+def get_translated_response(prompt_text, language):
+    """Check if a background-translated response is ready."""
+    cache_key = f"translated_cache_{language}"
+    # Check finalized cache first
+    if cache_key in st.session_state:
+        return st.session_state[cache_key].get(prompt_text)
+    # Check in-progress results
+    results = st.session_state.get(f"_translate_results_{language}", {})
+    if prompt_text in results and results[prompt_text] is not None:
+        return results[prompt_text]
+    return None
 
 # Detect which game the user is asking about
 def detect_game(message, available_games, anthropic_client):
@@ -747,11 +787,20 @@ def main():
     with st.spinner("Preparing your experience..."):
         cached_responses = pregenerate_quick_responses(anthropic_client, game_list_key, menu_context)
 
-    # If a language was just selected, pre-translate cached responses
+    # If a language was just selected, start background translation
     if st.session_state.get("pending_language_cache"):
         lang = st.session_state.pop("pending_language_cache")
         if lang != "English":
-            translate_cached_responses(cached_responses, lang, anthropic_client)
+            start_background_translation(
+                cached_responses, lang, os.environ.get("ANTHROPIC_API_KEY")
+            )
+
+    # Also start background translation if customer has a language preference (e.g. returning user)
+    customer_lang = (st.session_state.customer_profile or {}).get("language_preference", "")
+    if customer_lang and customer_lang != "English":
+        start_background_translation(
+            cached_responses, customer_lang, os.environ.get("ANTHROPIC_API_KEY")
+        )
 
     # Initialize remaining session state
     if 'messages' not in st.session_state:
@@ -897,12 +946,12 @@ entire profile. Don't mention their phone number. End with asking what you can h
         response = None
         has_language_pref = (st.session_state.customer_profile or {}).get("language_preference", "")
         if is_cached_response and has_language_pref and has_language_pref != "English":
-            # Try translated cache; generate in background if not ready yet
-            translated = translate_cached_responses(cached_responses, has_language_pref, anthropic_client)
-            if translated.get(prompt):
-                response = translated[prompt]
+            # Check if background translation is ready
+            translated_response = get_translated_response(prompt, has_language_pref)
+            if translated_response:
+                response = translated_response
             else:
-                response = cached_responses[prompt]  # fallback to English
+                response = None  # will trigger fresh generation below
         elif is_cached_response:
             response = cached_responses[prompt]
 
