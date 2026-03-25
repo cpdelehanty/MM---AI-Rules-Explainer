@@ -78,6 +78,119 @@ def init_database():
         )
     """)
 
+    # Deals table (synced from Google Sheets)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS deals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            deal_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            display_text TEXT NOT NULL,
+            discount_type TEXT NOT NULL,
+            discount_value REAL,
+            free_item_description TEXT,
+            min_spend REAL DEFAULT 0,
+            min_visit_count INTEGER DEFAULT 0,
+            min_party_size INTEGER DEFAULT 1,
+            first_visit_only INTEGER DEFAULT 0,
+            time_of_day_start TEXT,
+            time_of_day_end TEXT,
+            days_of_week TEXT,
+            active INTEGER DEFAULT 1,
+            expiry_date TEXT,
+            last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Deals sync log
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS deals_sync_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            deals_synced INTEGER,
+            status TEXT
+        )
+    """)
+
+    # Events table (synced from Google Sheets)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            date TEXT,
+            time TEXT,
+            game TEXT,
+            display_text TEXT NOT NULL,
+            active INTEGER DEFAULT 1,
+            last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Events sync log
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS events_sync_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            events_synced INTEGER,
+            status TEXT
+        )
+    """)
+
+    # Orders table (local record, also written to Google Sheets)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id TEXT UNIQUE NOT NULL,
+            phone TEXT,
+            visit_id TEXT,
+            items TEXT NOT NULL,
+            subtotal REAL NOT NULL,
+            deals_applied TEXT,
+            total REAL NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Auto deal rules (configurable spend-threshold offers)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS auto_deal_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            min_spend_threshold REAL NOT NULL,
+            discount_percent REAL NOT NULL,
+            max_discount REAL,
+            display_template TEXT NOT NULL,
+            active INTEGER DEFAULT 1,
+            last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Auto deal rules sync log
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS auto_rules_sync_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            rules_synced INTEGER,
+            status TEXT
+        )
+    """)
+
+    # Security log (anomaly tracking for prompt injection attempts)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS security_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone TEXT,
+            event_type TEXT NOT NULL,
+            details TEXT,
+            user_message TEXT,
+            ai_response_snippet TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     # Create index for faster lookups
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_game_id ON chunks(game_id)
@@ -321,3 +434,105 @@ def get_last_menu_sync():
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else None
+
+
+def get_active_deals():
+    """Get all active deals"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM deals WHERE active = 1")
+    deals = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return deals
+
+
+def get_last_deals_sync():
+    """Get timestamp of last successful deals sync (today only)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT synced_at FROM deals_sync_log
+        WHERE status = 'success'
+          AND date(synced_at) = date('now')
+        ORDER BY synced_at DESC LIMIT 1
+    """)
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+
+def get_active_events():
+    """Get all active events"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM events WHERE active = 1")
+    events = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return events
+
+
+def get_last_events_sync():
+    """Get timestamp of last successful events sync (today only)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT synced_at FROM events_sync_log
+        WHERE status = 'success'
+          AND date(synced_at) = date('now')
+        ORDER BY synced_at DESC LIMIT 1
+    """)
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+
+def get_auto_deal_rules():
+    """Get all active auto-deal rules"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM auto_deal_rules WHERE active = 1")
+    rules = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rules
+
+
+def get_last_auto_rules_sync():
+    """Get timestamp of last successful auto rules sync (today only)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT synced_at FROM auto_rules_sync_log
+        WHERE status = 'success'
+          AND date(synced_at) = date('now')
+        ORDER BY synced_at DESC LIMIT 1
+    """)
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+
+def save_order(order_id, phone, visit_id, items_json, subtotal, deals_json, total):
+    """Save an order to local database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO orders (order_id, phone, visit_id, items, subtotal, deals_applied, total, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+    """, (order_id, phone, visit_id, items_json, subtotal, deals_json, total))
+    conn.commit()
+    conn.close()
+
+
+def log_security_event(phone, event_type, details, user_message=None, ai_response_snippet=None):
+    """Log a security event (prompt injection attempt, invalid deal, etc.)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO security_log (phone, event_type, details, user_message, ai_response_snippet)
+        VALUES (?, ?, ?, ?, ?)
+    """, (phone, event_type, details, user_message, ai_response_snippet))
+    conn.commit()
+    conn.close()

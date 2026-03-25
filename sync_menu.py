@@ -38,7 +38,7 @@ def sync_menu_from_sheets():
         # Auth with service account
         creds_dict = json.loads(service_account_json)
         scopes = [
-            "https://www.googleapis.com/auth/spreadsheets.readonly",
+            "https://www.googleapis.com/auth/spreadsheets",
         ]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
