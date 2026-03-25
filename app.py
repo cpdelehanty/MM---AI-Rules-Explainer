@@ -993,7 +993,7 @@ def open_order_dialog():
         with col_back:
             if st.button(f"⬅️ {ui.get('go_back', 'Go Back')}", use_container_width=True, key="confirm_back"):
                 st.session_state.dialog_view = "menu"
-                st.rerun()
+                st.rerun(scope="fragment")
         with col_confirm:
             if st.button(f"✅ {ui.get('confirm_order_btn', 'Confirm Order')}", use_container_width=True, type="primary", key="confirm_place"):
                 subtotal = get_cart_subtotal(cart)
@@ -1031,7 +1031,7 @@ def open_order_dialog():
         item = item_lookup.get(detail_id)
         if not item:
             st.session_state.dialog_view = "menu"
-            st.rerun()
+            st.rerun(scope="fragment")
             return
 
         name = item["name"]
@@ -1048,7 +1048,7 @@ def open_order_dialog():
         if st.button(f"⬅️ {ui.get('go_back', 'Back to menu')}", key="detail_back"):
             st.session_state.dialog_view = "menu"
             st.session_state.detail_item = None
-            st.rerun()
+            st.rerun(scope="fragment")
 
         st.subheader(f"{escape_dollars(name)} — \\${price_val:.2f}")
 
@@ -1119,7 +1119,7 @@ def open_order_dialog():
 
             st.session_state.dialog_view = "menu"
             st.session_state.detail_item = None
-            st.rerun()
+            st.rerun(scope="fragment")
         return
 
     # ========== MENU BROWSING VIEW ==========
@@ -1154,7 +1154,7 @@ def open_order_dialog():
                     if st.button("➕", key=f"add_{item_id}", use_container_width=True):
                         st.session_state.detail_item = item_id
                         st.session_state.dialog_view = "detail"
-                        st.rerun()
+                        st.rerun(scope="fragment")
                 st.divider()
 
     # --- Floating cart indicator ---
@@ -1182,19 +1182,19 @@ def open_order_dialog():
                         item["qty"] -= 1
                     else:
                         st.session_state.cart.pop(idx)
-                    st.rerun()
+                    st.rerun(scope="fragment")
             with col_qty:
                 st.markdown(f"**{item['qty']}**")
             with col_plus:
                 if st.button("+", key=f"cart_plus_{item['item_id']}_{idx}"):
                     item["qty"] += 1
-                    st.rerun()
+                    st.rerun(scope="fragment")
             with col_total:
                 st.markdown(f"\\${line_total:.2f}")
             with col_rm:
                 if st.button("🗑️", key=f"cart_rm_{item['item_id']}_{idx}"):
                     st.session_state.cart.pop(idx)
-                    st.rerun()
+                    st.rerun(scope="fragment")
 
         st.divider()
         st.markdown(f"**{ui.get('subtotal', 'Subtotal')}: \\${cart_total:.2f}**")
@@ -1217,7 +1217,7 @@ def open_order_dialog():
                         st.markdown("✅")
                     elif st.button(ui.get("apply", "Apply"), key=f"deal_{deal['deal_id']}", use_container_width=True):
                         st.session_state.deals_applied.append(deal)
-                        st.rerun()
+                        st.rerun(scope="fragment")
 
         if near_miss_deals:
             for deal in near_miss_deals:
@@ -1227,7 +1227,7 @@ def open_order_dialog():
         # Place order button
         if st.button(f"🛒 {ui.get('place_order', 'Place Order')} — \\${cart_total:.2f}", use_container_width=True, type="primary", key="place_order"):
             st.session_state.dialog_view = "confirm"
-            st.rerun()
+            st.rerun(scope="fragment")
 
 
 # Main app
