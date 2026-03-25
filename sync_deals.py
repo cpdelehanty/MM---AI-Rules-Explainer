@@ -103,16 +103,17 @@ def sync_deals_from_sheets():
 
             cursor.execute("""
                 INSERT INTO deals (deal_id, name, display_text, discount_type, discount_value,
-                    free_item_description, min_spend, min_visit_count, min_party_size,
+                    free_item_description, target_category, min_spend, min_visit_count, min_party_size,
                     first_visit_only, time_of_day_start, time_of_day_end, days_of_week,
                     active, expiry_date, last_synced)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(deal_id) DO UPDATE SET
                     name = excluded.name,
                     display_text = excluded.display_text,
                     discount_type = excluded.discount_type,
                     discount_value = excluded.discount_value,
                     free_item_description = excluded.free_item_description,
+                    target_category = excluded.target_category,
                     min_spend = excluded.min_spend,
                     min_visit_count = excluded.min_visit_count,
                     min_party_size = excluded.min_party_size,
@@ -130,6 +131,7 @@ def sync_deals_from_sheets():
                 str(row.get("discount_type", "percent")).strip(),
                 safe_float(row.get("discount_value")),
                 str(row.get("free_item_description", "")).strip(),
+                str(row.get("target_category", "")).strip() or None,
                 safe_float(row.get("min_spend")),
                 safe_int(row.get("min_visit_count")),
                 safe_int(row.get("min_party_size", 1), default=1),
@@ -488,6 +490,7 @@ def evaluate_deals(customer_profile=None, cart_subtotal=0):
                 "discount_type": deal.get("discount_type", ""),
                 "discount_value": deal.get("discount_value", 0),
                 "free_item_description": deal.get("free_item_description", ""),
+                "target_category": deal.get("target_category", ""),
             })
         elif len(failures) == 1:
             near_miss.append({
@@ -496,6 +499,7 @@ def evaluate_deals(customer_profile=None, cart_subtotal=0):
                 "discount_type": deal.get("discount_type", ""),
                 "discount_value": deal.get("discount_value", 0),
                 "free_item_description": deal.get("free_item_description", ""),
+                "target_category": deal.get("target_category", ""),
                 "gap": failures[0]["gap"],
             })
         # 2+ failures → not shown

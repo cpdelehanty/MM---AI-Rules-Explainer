@@ -927,13 +927,19 @@ def open_order_dialog():
     applied_percent = 0
     applied_flat = 0
     applied_free_items = []
+    applied_flat_by_category = {}  # category -> flat discount amount
     for deal in st.session_state.deals_applied:
         dtype = deal.get("discount_type", "")
         dval = float(deal.get("discount_value", 0) or 0)
+        target_cat = deal.get("target_category", "")
         if dtype == "percent":
             applied_percent += dval
         elif dtype == "flat":
-            applied_flat += dval
+            if target_cat:
+                applied_flat_by_category[target_cat.lower()] = \
+                    applied_flat_by_category.get(target_cat.lower(), 0) + dval
+            else:
+                applied_flat += dval
         elif dtype == "free_item":
             free_name = deal.get("free_item_description", "")
             if free_name:
@@ -1088,11 +1094,15 @@ def open_order_dialog():
 
         # Check for deal-adjusted price in detail view
         detail_is_free = any(fi in name.lower() for fi in applied_free_items)
+        detail_cat = item.get("category", "").lower()
         detail_discounted = price_val
         if detail_is_free:
             detail_discounted = 0
-        elif applied_percent > 0:
-            detail_discounted = price_val * (1 - applied_percent / 100)
+        else:
+            if applied_percent > 0:
+                detail_discounted = price_val * (1 - applied_percent / 100)
+            if detail_cat in applied_flat_by_category:
+                detail_discounted = max(0, detail_discounted - applied_flat_by_category[detail_cat])
 
         if detail_is_free:
             st.subheader(f"{escape_dollars(name)} — ~~\\${price_val:.2f}~~ :green[FREE]")
@@ -1240,12 +1250,18 @@ def open_order_dialog():
 
                 # Check if this item is free via a deal
                 is_free = any(fi in name.lower() for fi in applied_free_items)
-                # Calculate discounted price (percent deals apply to all items)
+                # Calculate discounted price
+                item_cat = item.get("category", "").lower()
                 discounted_price = price_val
                 if is_free:
                     discounted_price = 0
-                elif applied_percent > 0:
-                    discounted_price = price_val * (1 - applied_percent / 100)
+                else:
+                    # Apply percent deals (all items)
+                    if applied_percent > 0:
+                        discounted_price = price_val * (1 - applied_percent / 100)
+                    # Apply category-targeted flat deals
+                    if item_cat in applied_flat_by_category:
+                        discounted_price = max(0, discounted_price - applied_flat_by_category[item_cat])
 
                 col_info, col_price, col_add = st.columns([4, 1, 1])
                 with col_info:
