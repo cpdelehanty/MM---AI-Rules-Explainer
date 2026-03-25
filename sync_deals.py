@@ -485,11 +485,17 @@ def evaluate_deals(customer_profile=None, cart_subtotal=0):
             eligible.append({
                 "deal_id": deal["deal_id"],
                 "display_text": deal["display_text"],
+                "discount_type": deal.get("discount_type", ""),
+                "discount_value": deal.get("discount_value", 0),
+                "free_item_description": deal.get("free_item_description", ""),
             })
         elif len(failures) == 1:
             near_miss.append({
                 "deal_id": deal["deal_id"],
                 "display_text": deal["display_text"],
+                "discount_type": deal.get("discount_type", ""),
+                "discount_value": deal.get("discount_value", 0),
+                "free_item_description": deal.get("free_item_description", ""),
                 "gap": failures[0]["gap"],
             })
         # 2+ failures → not shown

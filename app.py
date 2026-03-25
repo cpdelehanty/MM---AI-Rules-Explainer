@@ -923,6 +923,22 @@ def open_order_dialog():
     cat_names = list(categories.keys())
     tab_labels = [f"{CATEGORY_ICONS.get(cat, '📋')} {cat}" for cat in cat_names]
 
+    # Calculate applied discount info for price display (shared across all views)
+    applied_percent = 0
+    applied_flat = 0
+    applied_free_items = []
+    for deal in st.session_state.deals_applied:
+        dtype = deal.get("discount_type", "")
+        dval = float(deal.get("discount_value", 0) or 0)
+        if dtype == "percent":
+            applied_percent += dval
+        elif dtype == "flat":
+            applied_flat += dval
+        elif dtype == "free_item":
+            free_name = deal.get("free_item_description", "")
+            if free_name:
+                applied_free_items.append(free_name.lower())
+
     # ========== CONFIRMATION VIEW ==========
     if st.session_state.dialog_view == "confirm":
         st.subheader(ui.get("confirm_order", "Confirm Your Order"))
@@ -1070,7 +1086,20 @@ def open_order_dialog():
             st.session_state.detail_item = None
             st.rerun(scope="fragment")
 
-        st.subheader(f"{escape_dollars(name)} — \\${price_val:.2f}")
+        # Check for deal-adjusted price in detail view
+        detail_is_free = any(fi in name.lower() for fi in applied_free_items)
+        detail_discounted = price_val
+        if detail_is_free:
+            detail_discounted = 0
+        elif applied_percent > 0:
+            detail_discounted = price_val * (1 - applied_percent / 100)
+
+        if detail_is_free:
+            st.subheader(f"{escape_dollars(name)} — ~~\\${price_val:.2f}~~ :green[FREE]")
+        elif detail_discounted < price_val:
+            st.subheader(f"{escape_dollars(name)} — ~~\\${price_val:.2f}~~ :green[\\${detail_discounted:.2f}]")
+        else:
+            st.subheader(f"{escape_dollars(name)} — \\${price_val:.2f}")
 
         if description:
             st.markdown(f"*{escape_dollars(description)}*")
@@ -1119,8 +1148,17 @@ def open_order_dialog():
 
         st.divider()
 
+        # Show discounted price on add button
+        add_price = detail_discounted * qty if detail_discounted < price_val else price_val * qty
+        if detail_is_free:
+            add_label = f"➕ {ui.get('add_to_order', 'Add to Order')} — FREE"
+        elif detail_discounted < price_val:
+            add_label = f"➕ {ui.get('add_to_order', 'Add to Order')} — ~~\\${price_val * qty:.2f}~~ :green[\\${add_price:.2f}]"
+        else:
+            add_label = f"➕ {ui.get('add_to_order', 'Add to Order')} — \\${price_val * qty:.2f}"
+
         if st.button(
-            f"➕ {ui.get('add_to_order', 'Add to Order')} — \\${price_val * qty:.2f}",
+            add_label,
             use_container_width=True, type="primary", key="detail_add"
         ):
             # Build cart item
@@ -1200,6 +1238,15 @@ def open_order_dialog():
                 except (ValueError, TypeError):
                     price_val = 0
 
+                # Check if this item is free via a deal
+                is_free = any(fi in name.lower() for fi in applied_free_items)
+                # Calculate discounted price (percent deals apply to all items)
+                discounted_price = price_val
+                if is_free:
+                    discounted_price = 0
+                elif applied_percent > 0:
+                    discounted_price = price_val * (1 - applied_percent / 100)
+
                 col_info, col_price, col_add = st.columns([4, 1, 1])
                 with col_info:
                     st.markdown(f"**{escape_dollars(name)}**")
@@ -1210,7 +1257,14 @@ def open_order_dialog():
                         badges = " · ".join(DIETARY_BADGES.get(t, t) for t in tag_list)
                         st.caption(badges)
                 with col_price:
-                    st.markdown(f"**\\${price_val:.2f}**")
+                    if is_free:
+                        st.markdown(f"~~\\${price_val:.2f}~~")
+                        st.markdown(f"**:green[FREE]**")
+                    elif discounted_price < price_val:
+                        st.markdown(f"~~\\${price_val:.2f}~~")
+                        st.markdown(f"**:green[\\${discounted_price:.2f}]**")
+                    else:
+                        st.markdown(f"**\\${price_val:.2f}**")
                 with col_add:
                     if st.button("➕", key=f"add_{item_id}", use_container_width=True):
                         st.session_state.detail_item = item_id
