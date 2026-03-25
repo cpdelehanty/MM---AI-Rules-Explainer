@@ -877,7 +877,7 @@ def translate_app_ui(language, _api_key):
             max_tokens=500,
             messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation.
 
-{{"subtitle": "Your game night assistant — browse our game library, learn the rules, check out the menu, and more.", "browse_games": "Browse games", "rules_help": "Rules help", "order": "Order", "get_staff": "Get staff help", "chat_placeholder": "Ask about rules, the menu, or anything else...", "currently_helping": "Currently helping with", "pages": "Pages", "your_cart": "Your Cart", "cart_empty": "Your cart is empty — add items from the menu above!", "subtotal": "Subtotal", "add": "Add", "place_order": "Place Order", "confirm_order": "Confirm Your Order", "confirm_order_btn": "Confirm Order", "go_back": "Go Back", "deals_for_you": "Deals for you", "almost_there": "Almost there", "apply": "Apply", "menu_empty": "Menu is currently unavailable. Please ask a staff member."}}"""}]
+{{"subtitle": "Your game night assistant — browse our game library, learn the rules, check out the menu, and more.", "browse_games": "Browse games", "rules_help": "Rules help", "order": "Order", "get_staff": "Get staff help", "chat_placeholder": "Ask about rules, the menu, or anything else...", "currently_helping": "Currently helping with", "pages": "Pages", "your_cart": "Your Cart", "cart_empty": "Your cart is empty — add items from the menu above!", "subtotal": "Subtotal", "place_order": "Place Order", "confirm_order": "Confirm Your Order", "confirm_order_btn": "Confirm Order", "go_back": "Go Back", "deals_for_you": "Deals for you", "almost_there": "Almost there", "apply": "Apply", "menu_empty": "Menu is currently unavailable. Please ask a staff member.", "add_to_order": "Add to Order", "choose_option": "Choose your option", "quantity": "Quantity", "special_notes": "Special requests / notes", "notes_placeholder": "e.g. no onions, extra cheese, allergies..."}}"""}]
         )
         text = result.content[0].text.strip()
         if text.startswith("```"):
@@ -912,17 +912,48 @@ DIETARY_BADGES = {
 }
 
 
+def _parse_item_options(description):
+    """Detect items that suggest choices (flights, sodas, etc.) and return option list."""
+    if not description:
+        return []
+    # Look for patterns like "choose from: X, Y, Z" or items with "flight" in name
+    lower = description.lower()
+    # Common patterns for customizable items
+    option_patterns = [
+        # "choose from" or "pick from" followed by options
+        r'(?:choose|pick|select)\s+(?:from\s+)?[:\-]?\s*(.+)',
+        # "options:" or "flavors:" followed by list
+        r'(?:options|flavors|varieties|choices)\s*[:\-]\s*(.+)',
+    ]
+    for pattern in option_patterns:
+        match = re.search(pattern, lower)
+        if match:
+            options_text = match.group(1)
+            options = [o.strip().title() for o in re.split(r'[,;/]|(?:\sor\s)', options_text) if o.strip()]
+            if len(options) >= 2:
+                return options
+    return []
+
+
 @st.dialog("Order Food & Drinks", width="large")
 def open_order_dialog():
-    """DoorDash-style ordering popup with category tabs, cart, and deals."""
-    # Get UI translations
+    """DoorDash-style ordering popup with category tabs, item detail, cart, and deals."""
     ui = st.session_state.get("ui_translations", {})
+
+    # Initialize dialog-specific state
+    if "dialog_view" not in st.session_state:
+        st.session_state.dialog_view = "menu"  # "menu" | "detail" | "confirm"
+    if "detail_item" not in st.session_state:
+        st.session_state.detail_item = None
 
     # Load menu items grouped by category
     all_items = get_menu_items(available_only=True)
     if not all_items:
         st.warning(ui.get("menu_empty", "Menu is currently unavailable. Please ask a staff member."))
         return
+
+    # Build item lookup
+    item_lookup = {item["item_id"]: item for item in all_items}
 
     # Group by category
     categories = {}
@@ -932,19 +963,23 @@ def open_order_dialog():
             categories[cat] = []
         categories[cat].append(item)
 
-    # Build tab labels with icons
     cat_names = list(categories.keys())
     tab_labels = [f"{CATEGORY_ICONS.get(cat, '📋')} {cat}" for cat in cat_names]
 
-    # --- Confirmation view ---
-    if st.session_state.get("order_confirming"):
+    # ========== CONFIRMATION VIEW ==========
+    if st.session_state.dialog_view == "confirm":
         st.subheader(ui.get("confirm_order", "Confirm Your Order"))
         cart = st.session_state.cart
         subtotal = 0
         for item in cart:
             line_total = item["price"] * item["qty"]
             subtotal += line_total
-            st.markdown(f"**{item['name']}** x{item['qty']} — \\${line_total:.2f}")
+            item_line = f"**{escape_dollars(item['name'])}** x{item['qty']} — \\${line_total:.2f}"
+            if item.get("options"):
+                item_line += f"  \n*{escape_dollars(item['options'])}*"
+            if item.get("notes"):
+                item_line += f"  \n*Note: {escape_dollars(item['notes'])}*"
+            st.markdown(item_line)
         st.divider()
 
         if st.session_state.deals_applied:
@@ -956,14 +991,13 @@ def open_order_dialog():
 
         col_back, col_confirm = st.columns(2)
         with col_back:
-            if st.button(f"⬅️ {ui.get('go_back', 'Go Back')}", use_container_width=True):
-                st.session_state.order_confirming = False
+            if st.button(f"⬅️ {ui.get('go_back', 'Go Back')}", use_container_width=True, key="confirm_back"):
+                st.session_state.dialog_view = "menu"
                 st.rerun()
         with col_confirm:
-            if st.button(f"✅ {ui.get('confirm_order_btn', 'Confirm Order')}", use_container_width=True, type="primary"):
-                # Place the order
+            if st.button(f"✅ {ui.get('confirm_order_btn', 'Confirm Order')}", use_container_width=True, type="primary", key="confirm_place"):
                 subtotal = get_cart_subtotal(cart)
-                total = subtotal  # TODO: apply deal discounts
+                total = subtotal
                 order_id = str(uuid.uuid4())[:8]
                 items_json = json.dumps(cart)
                 deals_json = json.dumps(st.session_state.deals_applied) if st.session_state.deals_applied else ""
@@ -979,20 +1013,116 @@ def open_order_dialog():
                     reason="food_order"
                 )
 
-                # Add to chat history
                 order_summary = f"Order placed! (#{order_id}) — " + ", ".join(
                     f"{item['name']} x{item['qty']}" for item in cart
                 ) + f" — Total: \\${total:.2f}"
                 st.session_state.messages.append({"role": "assistant", "content": order_summary})
 
-                # Clear cart
                 st.session_state.cart = []
                 st.session_state.deals_applied = []
-                st.session_state.order_confirming = False
+                st.session_state.dialog_view = "menu"
+                st.session_state.detail_item = None
                 st.rerun()
         return
 
-    # --- Menu browsing view ---
+    # ========== ITEM DETAIL VIEW ==========
+    if st.session_state.dialog_view == "detail" and st.session_state.detail_item:
+        detail_id = st.session_state.detail_item
+        item = item_lookup.get(detail_id)
+        if not item:
+            st.session_state.dialog_view = "menu"
+            st.rerun()
+            return
+
+        name = item["name"]
+        price_str = item.get("price", "$0")
+        description = item.get("notes", "") or item.get("description", "")
+        tags_raw = item.get("dietary_tags", "")
+
+        try:
+            price_val = float(price_str.replace("$", ""))
+        except (ValueError, TypeError):
+            price_val = 0
+
+        # Back button
+        if st.button(f"⬅️ {ui.get('go_back', 'Back to menu')}", key="detail_back"):
+            st.session_state.dialog_view = "menu"
+            st.session_state.detail_item = None
+            st.rerun()
+
+        st.subheader(f"{escape_dollars(name)} — \\${price_val:.2f}")
+
+        if description:
+            st.markdown(f"*{escape_dollars(description)}*")
+
+        if tags_raw:
+            tag_list = [t.strip().lower() for t in tags_raw.replace(";", ",").split(",") if t.strip()]
+            badges = " · ".join(DIETARY_BADGES.get(t, t) for t in tag_list)
+            st.markdown(badges)
+
+        st.divider()
+
+        # Options dropdown (for items with choices like flights, sodas)
+        item_options = _parse_item_options(description)
+        selected_option = None
+        if item_options:
+            selected_option = st.selectbox(
+                ui.get("choose_option", "Choose your option"),
+                options=item_options,
+                key=f"option_{detail_id}"
+            )
+
+        # Quantity
+        qty = st.number_input(
+            ui.get("quantity", "Quantity"),
+            min_value=1, max_value=20, value=1,
+            key=f"qty_{detail_id}"
+        )
+
+        # Notes
+        notes = st.text_input(
+            ui.get("special_notes", "Special requests / notes"),
+            placeholder=ui.get("notes_placeholder", "e.g. no onions, extra cheese, allergies..."),
+            key=f"notes_{detail_id}"
+        )
+
+        st.divider()
+
+        if st.button(
+            f"➕ {ui.get('add_to_order', 'Add to Order')} — \\${price_val * qty:.2f}",
+            use_container_width=True, type="primary", key="detail_add"
+        ):
+            # Build cart item
+            cart_item = {
+                "item_id": detail_id,
+                "name": name,
+                "price": price_val,
+                "qty": qty,
+            }
+            if selected_option:
+                cart_item["options"] = selected_option
+            if notes.strip():
+                cart_item["notes"] = notes.strip()
+
+            # Check if same item+options already in cart
+            existing = next(
+                (c for c in st.session_state.cart
+                 if c["item_id"] == detail_id
+                 and c.get("options", "") == cart_item.get("options", "")
+                 and c.get("notes", "") == cart_item.get("notes", "")),
+                None
+            )
+            if existing:
+                existing["qty"] += qty
+            else:
+                st.session_state.cart.append(cart_item)
+
+            st.session_state.dialog_view = "menu"
+            st.session_state.detail_item = None
+            st.rerun()
+        return
+
+    # ========== MENU BROWSING VIEW ==========
     tabs = st.tabs(tab_labels)
 
     for i, cat in enumerate(cat_names):
@@ -1004,13 +1134,11 @@ def open_order_dialog():
                 description = item.get("notes", "") or item.get("description", "")
                 tags_raw = item.get("dietary_tags", "")
 
-                # Parse price
                 try:
                     price_val = float(price_str.replace("$", ""))
                 except (ValueError, TypeError):
                     price_val = 0
 
-                # Item row
                 col_info, col_price, col_add = st.columns([4, 1, 1])
                 with col_info:
                     st.markdown(f"**{escape_dollars(name)}**")
@@ -1023,37 +1151,33 @@ def open_order_dialog():
                 with col_price:
                     st.markdown(f"**\\${price_val:.2f}**")
                 with col_add:
-                    if st.button(ui.get("add", "Add"), key=f"add_{item_id}", use_container_width=True):
-                        # Add to cart
-                        existing = next((c for c in st.session_state.cart if c["item_id"] == item_id), None)
-                        if existing:
-                            existing["qty"] += 1
-                        else:
-                            st.session_state.cart.append({
-                                "item_id": item_id,
-                                "name": name,
-                                "price": price_val,
-                                "qty": 1,
-                            })
+                    if st.button("➕", key=f"add_{item_id}", use_container_width=True):
+                        st.session_state.detail_item = item_id
+                        st.session_state.dialog_view = "detail"
                         st.rerun()
                 st.divider()
 
-    # --- Cart section ---
-    st.subheader(f"🛒 {ui.get('your_cart', 'Your Cart')}")
+    # --- Floating cart indicator ---
+    if st.session_state.cart:
+        cart_count = sum(c["qty"] for c in st.session_state.cart)
+        cart_total = get_cart_subtotal(st.session_state.cart)
+        st.divider()
 
-    if not st.session_state.cart:
-        st.caption(ui.get("cart_empty", "Your cart is empty — add items from the menu above!"))
-    else:
-        subtotal = 0
+        # Cart anchor
+        st.subheader(f"🛒 {ui.get('your_cart', 'Your Cart')} ({cart_count})")
+
         for idx, item in enumerate(st.session_state.cart):
             line_total = item["price"] * item["qty"]
-            subtotal += line_total
-
             col_name, col_minus, col_qty, col_plus, col_total, col_rm = st.columns([3, 0.5, 0.5, 0.5, 1, 0.5])
             with col_name:
-                st.markdown(f"**{escape_dollars(item['name'])}**")
+                label = f"**{escape_dollars(item['name'])}**"
+                if item.get("options"):
+                    label += f"  \n*{escape_dollars(item['options'])}*"
+                if item.get("notes"):
+                    label += f"  \n*{escape_dollars(item['notes'])}*"
+                st.markdown(label)
             with col_minus:
-                if st.button("−", key=f"cart_minus_{item['item_id']}"):
+                if st.button("−", key=f"cart_minus_{item['item_id']}_{idx}"):
                     if item["qty"] > 1:
                         item["qty"] -= 1
                     else:
@@ -1062,25 +1186,24 @@ def open_order_dialog():
             with col_qty:
                 st.markdown(f"**{item['qty']}**")
             with col_plus:
-                if st.button("+", key=f"cart_plus_{item['item_id']}"):
+                if st.button("+", key=f"cart_plus_{item['item_id']}_{idx}"):
                     item["qty"] += 1
                     st.rerun()
             with col_total:
                 st.markdown(f"\\${line_total:.2f}")
             with col_rm:
-                if st.button("🗑️", key=f"cart_rm_{item['item_id']}"):
+                if st.button("🗑️", key=f"cart_rm_{item['item_id']}_{idx}"):
                     st.session_state.cart.pop(idx)
                     st.rerun()
 
         st.divider()
-        st.markdown(f"**{ui.get('subtotal', 'Subtotal')}: \\${subtotal:.2f}**")
+        st.markdown(f"**{ui.get('subtotal', 'Subtotal')}: \\${cart_total:.2f}**")
 
-        # --- Deals section ---
+        # Deals
         customer_profile_for_deals = None
         if st.session_state.customer_phone and st.session_state.customer_phone != "ANON":
             customer_profile_for_deals = get_customer(st.session_state.customer_phone)
-
-        eligible_deals, near_miss_deals = evaluate_deals(customer_profile_for_deals, subtotal)
+        eligible_deals, near_miss_deals = evaluate_deals(customer_profile_for_deals, cart_total)
 
         if eligible_deals:
             st.markdown(f"**🏷️ {ui.get('deals_for_you', 'Deals for you')}**")
@@ -1102,8 +1225,8 @@ def open_order_dialog():
                 st.info(f"{ui.get('almost_there', 'Almost there')}: {gap} — {escape_dollars(deal['display_text'])}")
 
         # Place order button
-        if st.button(f"🛒 {ui.get('place_order', 'Place Order')}", use_container_width=True, type="primary"):
-            st.session_state.order_confirming = True
+        if st.button(f"🛒 {ui.get('place_order', 'Place Order')} — \\${cart_total:.2f}", use_container_width=True, type="primary", key="place_order"):
+            st.session_state.dialog_view = "confirm"
             st.rerun()
 
 
@@ -1292,8 +1415,10 @@ def main():
         st.session_state.cart = []
     if 'deals_applied' not in st.session_state:
         st.session_state.deals_applied = []
-    if 'order_confirming' not in st.session_state:
-        st.session_state.order_confirming = False
+    if 'dialog_view' not in st.session_state:
+        st.session_state.dialog_view = "menu"
+    if 'detail_item' not in st.session_state:
+        st.session_state.detail_item = None
     if 'games_this_session' not in st.session_state:
         st.session_state.games_this_session = []
 
