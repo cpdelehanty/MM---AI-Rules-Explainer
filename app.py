@@ -1005,7 +1005,17 @@ def open_order_dialog():
                 st.markdown(f"🏷️ {escape_dollars(deal.get('display_text', deal.get('deal_id', '')))}")
             st.divider()
 
-        st.markdown(f"**{ui.get('subtotal', 'Subtotal')}: \\${subtotal:.2f}**")
+        # Tax and total
+        NYC_SALES_TAX = 0.08875
+        tax = subtotal * NYC_SALES_TAX
+        total_with_tax = subtotal + tax
+
+        st.markdown(f"{ui.get('subtotal', 'Subtotal')}: \\${subtotal:.2f}")
+        st.markdown(f"{ui.get('tax', 'Tax')} (8.875%): \\${tax:.2f}")
+        st.markdown(f"**{ui.get('total', 'Total')}: \\${total_with_tax:.2f}**")
+
+        st.caption(ui.get("added_to_tab",
+            "This will be added to your tab, which includes your table time and any other orders from this visit."))
 
         col_back, col_confirm = st.columns(2)
         with col_back:
@@ -1015,7 +1025,8 @@ def open_order_dialog():
         with col_confirm:
             if st.button(f"✅ {ui.get('confirm_order_btn', 'Confirm Order')}", use_container_width=True, type="primary", key="confirm_place"):
                 subtotal = get_cart_subtotal(cart)
-                total = subtotal
+                tax = subtotal * NYC_SALES_TAX
+                total = subtotal + tax
                 order_id = str(uuid.uuid4())[:8]
                 items_json = json.dumps(cart)
                 deals_json = json.dumps(st.session_state.deals_applied) if st.session_state.deals_applied else ""
