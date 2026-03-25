@@ -422,13 +422,13 @@ def get_menu_items(category=None, available_only=True):
     return items
 
 def get_last_menu_sync():
-    """Get timestamp of last successful menu sync (today only)"""
+    """Get timestamp of last successful menu sync (within last 4 hours)"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         SELECT synced_at FROM menu_sync_log
         WHERE status = 'success'
-          AND date(synced_at) = date('now')
+          AND synced_at > datetime('now', '-4 hours')
         ORDER BY synced_at DESC LIMIT 1
     """)
     result = cursor.fetchone()

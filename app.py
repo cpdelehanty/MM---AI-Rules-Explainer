@@ -912,26 +912,41 @@ DIETARY_BADGES = {
 }
 
 
-def _parse_item_options(description):
-    """Detect items that suggest choices (flights, sodas, etc.) and return option list."""
-    if not description:
-        return []
-    # Look for patterns like "choose from: X, Y, Z" or items with "flight" in name
-    lower = description.lower()
-    # Common patterns for customizable items
-    option_patterns = [
-        # "choose from" or "pick from" followed by options
+def _get_item_options(item, all_items):
+    """
+    Determine if an item has selectable options.
+    Returns list of option strings, or empty list if no options.
+    """
+    name = item.get("name", "").lower()
+    item_id = item.get("item_id", "")
+    category = item.get("category", "")
+    description = (item.get("notes", "") or item.get("description", "")).lower()
+
+    # Popcorn flight — options are the other popcorn flavors
+    if "flight" in name and "popcorn" in name.lower():
+        popcorn_items = [
+            i["name"] for i in all_items
+            if i.get("category", "") == category
+            and i["item_id"] != item_id
+            and "flight" not in i["name"].lower()
+        ]
+        return popcorn_items if len(popcorn_items) >= 2 else []
+
+    # Grilled cheese flight — no selectable options (rotating, chef's choice)
+    # House soda — rotating, no fixed options
+
+    # Check description for explicit option patterns
+    for pattern in [
         r'(?:choose|pick|select)\s+(?:from\s+)?[:\-]?\s*(.+)',
-        # "options:" or "flavors:" followed by list
         r'(?:options|flavors|varieties|choices)\s*[:\-]\s*(.+)',
-    ]
-    for pattern in option_patterns:
-        match = re.search(pattern, lower)
+    ]:
+        match = re.search(pattern, description)
         if match:
             options_text = match.group(1)
             options = [o.strip().title() for o in re.split(r'[,;/]|(?:\sor\s)', options_text) if o.strip()]
             if len(options) >= 2:
                 return options
+
     return []
 
 
@@ -1062,15 +1077,26 @@ def open_order_dialog():
 
         st.divider()
 
-        # Options dropdown (for items with choices like flights, sodas)
-        item_options = _parse_item_options(description)
+        # Options (for items with choices like flights, sodas)
+        item_options = _get_item_options(item, all_items)
         selected_option = None
+        is_flight = "flight" in name.lower()
         if item_options:
-            selected_option = st.selectbox(
-                ui.get("choose_option", "Choose your option"),
-                options=item_options,
-                key=f"option_{detail_id}"
-            )
+            if is_flight:
+                # Flights: pick multiple flavors
+                selected_options = st.multiselect(
+                    ui.get("choose_flavors", "Choose your flavors"),
+                    options=item_options,
+                    max_selections=3,
+                    key=f"option_{detail_id}"
+                )
+                selected_option = ", ".join(selected_options) if selected_options else None
+            else:
+                selected_option = st.selectbox(
+                    ui.get("choose_option", "Choose your option"),
+                    options=item_options,
+                    key=f"option_{detail_id}"
+                )
 
         # Quantity
         qty = st.number_input(
