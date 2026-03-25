@@ -932,8 +932,11 @@ def _get_item_options(item, all_items):
         ]
         return popcorn_items if len(popcorn_items) >= 2 else []
 
+    # Soda — rotating craft cans, placeholder flavors
+    if "soda" in name:
+        return ["Cola", "Ginger Beer", "Lemon-Lime", "Root Beer", "Ask staff what's in stock"]
+
     # Grilled cheese flight — no selectable options (rotating, chef's choice)
-    # House soda — rotating, no fixed options
 
     # Check description for explicit option patterns
     for pattern in [
