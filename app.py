@@ -1036,19 +1036,6 @@ def main():
     # Build customer history context for prompts
     customer_context = build_history_context(st.session_state.customer_phone)
 
-    # Build deals, events, and cart context (evaluated per-request)
-    customer_profile_for_deals = None
-    if st.session_state.customer_phone and st.session_state.customer_phone != "ANON":
-        customer_profile_for_deals = get_customer(st.session_state.customer_phone)
-
-    cart_subtotal = get_cart_subtotal(st.session_state.cart)
-    deals_context = format_deals_for_prompt(customer_profile_for_deals, cart_subtotal)
-    events_context = format_events_for_prompt(st.session_state.current_game)
-    cart_context = build_cart_context(st.session_state.cart, st.session_state.deals_applied)
-
-    # Get eligible deals for server-side validation
-    eligible_deals, _ = evaluate_deals(customer_profile_for_deals, cart_subtotal)
-
     # Check if library is empty
     if not game_library:
         st.error("📚 No games in library yet!")
@@ -1095,6 +1082,19 @@ def main():
         st.session_state.deals_applied = []
     if 'games_this_session' not in st.session_state:
         st.session_state.games_this_session = []
+
+    # Build deals, events, and cart context (evaluated per-request, after session state init)
+    customer_profile_for_deals = None
+    if st.session_state.customer_phone and st.session_state.customer_phone != "ANON":
+        customer_profile_for_deals = get_customer(st.session_state.customer_phone)
+
+    cart_subtotal = get_cart_subtotal(st.session_state.cart)
+    deals_context = format_deals_for_prompt(customer_profile_for_deals, cart_subtotal)
+    events_context = format_events_for_prompt(st.session_state.current_game)
+    cart_context = build_cart_context(st.session_state.cart, st.session_state.deals_applied)
+
+    # Get eligible deals for server-side validation
+    eligible_deals, _ = evaluate_deals(customer_profile_for_deals, cart_subtotal)
 
     # Welcome message based on customer tier
     if st.session_state.is_returning and not st.session_state.messages:
