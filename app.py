@@ -21,7 +21,7 @@ from sync_deals import (
     should_sync_events, sync_events_from_sheets,
     should_sync_auto_rules, sync_auto_rules_from_sheets,
     format_deals_for_prompt, format_events_for_prompt,
-    transmit_order_to_sheet, evaluate_deals,
+    transmit_order_to_sheet, evaluate_deals, evaluate_auto_deals,
 )
 from user_store import (
     normalize_phone, validate_phone, get_customer, create_customer,
@@ -813,7 +813,7 @@ def translate_app_ui(language, _api_key):
             max_tokens=500,
             messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation.
 
-{{"subtitle": "Your game night assistant — browse our game library, learn the rules, check out the menu, and more.", "browse_games": "Browse games", "rules_help": "Rules help", "order": "Order", "get_staff": "Get staff help", "chat_placeholder": "Ask about rules, the menu, or anything else...", "currently_helping": "Currently helping with", "pages": "Pages", "your_cart": "Your Cart", "cart_empty": "Your cart is empty — add items from the menu above!", "subtotal": "Subtotal", "place_order": "Place Order", "confirm_order": "Confirm Your Order", "confirm_order_btn": "Confirm Order", "go_back": "Go Back", "deals_for_you": "Deals for you", "almost_there": "Almost there", "apply": "Apply", "menu_empty": "Menu is currently unavailable. Please ask a staff member.", "add_to_order": "Add to Order", "choose_option": "Choose your option", "choose_flavors": "Choose your flavors", "quantity": "Quantity", "special_notes": "Special requests / notes", "notes_placeholder": "e.g. no onions, extra cheese, allergies...", "added_to_cart": "added to cart", "order_placed": "Order placed!", "total": "Total", "tax": "Tax", "discount": "Discount", "added_to_tab": "This will be added to your tab, which includes your table time and any other orders from this visit.", "cart_empty_error": "Your cart is empty."}}"""}]
+{{"subtitle": "Your game night assistant — browse our game library, learn the rules, check out the menu, and more.", "browse_games": "Browse games", "rules_help": "Rules help", "order": "Order", "get_staff": "Get staff help", "chat_placeholder": "Ask about rules, the menu, or anything else...", "currently_helping": "Currently helping with", "pages": "Pages", "your_cart": "Your Cart", "cart_empty": "Your cart is empty — add items from the menu above!", "subtotal": "Subtotal", "place_order": "Place Order", "confirm_order": "Confirm Your Order", "confirm_order_btn": "Confirm Order", "go_back": "Go Back", "deals_for_you": "Deals for you", "almost_there": "Almost there", "apply": "Apply", "menu_empty": "Menu is currently unavailable. Please ask a staff member.", "add_to_order": "Add to Order", "choose_option": "Choose your option", "choose_flavors": "Choose your flavors", "quantity": "Quantity", "special_notes": "Special requests / notes", "notes_placeholder": "e.g. no onions, extra cheese, allergies...", "added_to_cart": "added to cart", "order_placed": "Order placed!", "total": "Total", "tax": "Tax", "discount": "Discount", "added_to_tab": "This will be added to your tab, which includes your table time and any other orders from this visit.", "cart_empty_error": "Your cart is empty.", "your_deals": "Your Deals", "before_you_order": "Before you order...", "add_more": "Add more items"}}"""}]
         )
         text = result.content[0].text.strip()
         if text.startswith("```"):
@@ -966,6 +966,30 @@ def open_order_dialog():
 
         st.caption(ui.get("added_to_tab",
             "This will be added to your tab, which includes your table time and any other orders from this visit."))
+
+        # --- Upsell prompts on confirmation screen ---
+        confirm_profile = None
+        if st.session_state.customer_phone and st.session_state.customer_phone != "ANON":
+            confirm_profile = get_customer(st.session_state.customer_phone)
+
+        _, near_miss_confirm = evaluate_deals(confirm_profile, discounted_subtotal)
+        auto_offers = evaluate_auto_deals(discounted_subtotal)
+
+        has_upsell = near_miss_confirm or auto_offers
+        if has_upsell:
+            st.divider()
+            st.markdown(f"**💡 {ui.get('before_you_order', 'Before you order...')}**")
+
+            for deal in near_miss_confirm:
+                gap = deal.get("gap", "")
+                st.info(f"🏷️ {gap} → {escape_dollars(deal['display_text'])}")
+
+            for offer in auto_offers:
+                st.info(f"💰 {escape_dollars(offer['description'])}")
+
+            if st.button(f"⬅️ {ui.get('add_more', 'Add more items')}", key="upsell_back", use_container_width=True):
+                st.session_state.dialog_view = "menu"
+                st.rerun(scope="fragment")
 
         col_back, col_confirm = st.columns(2)
         with col_back:
@@ -1132,6 +1156,30 @@ def open_order_dialog():
     if st.session_state.get("cart_feedback"):
         st.success(st.session_state.cart_feedback)
         st.session_state.cart_feedback = None
+
+    # --- Deals landing: show eligible deals at the top ---
+    customer_profile_for_deals = None
+    if st.session_state.customer_phone and st.session_state.customer_phone != "ANON":
+        customer_profile_for_deals = get_customer(st.session_state.customer_phone)
+
+    cart_subtotal_now = get_cart_subtotal(st.session_state.cart)
+    eligible_deals_top, _ = evaluate_deals(customer_profile_for_deals, cart_subtotal_now)
+
+    if eligible_deals_top:
+        st.markdown(f"**🏷️ {ui.get('your_deals', 'Your Deals')}**")
+        for deal in eligible_deals_top:
+            already_applied = any(d["deal_id"] == deal["deal_id"] for d in st.session_state.deals_applied)
+            if already_applied:
+                st.success(f"✅ {escape_dollars(deal['display_text'])}")
+            else:
+                col_deal, col_apply = st.columns([4, 1])
+                with col_deal:
+                    st.success(escape_dollars(deal["display_text"]))
+                with col_apply:
+                    if st.button(ui.get("apply", "Apply"), key=f"top_deal_{deal['deal_id']}", use_container_width=True):
+                        st.session_state.deals_applied.append(deal)
+                        st.rerun(scope="fragment")
+        st.divider()
 
     tabs = st.tabs(tab_labels)
 
