@@ -1092,17 +1092,21 @@ def open_order_dialog():
             st.session_state.detail_item = None
             st.rerun(scope="fragment")
 
-        # Check for deal-adjusted price in detail view
+        # Check for deal-adjusted price in detail view — best single discount wins
         detail_is_free = any(fi in name.lower() for fi in applied_free_items)
         detail_cat = item.get("category", "").lower()
         detail_discounted = price_val
         if detail_is_free:
             detail_discounted = 0
         else:
+            candidates = [price_val]
             if applied_percent > 0:
-                detail_discounted = price_val * (1 - applied_percent / 100)
+                candidates.append(price_val * (1 - applied_percent / 100))
             if detail_cat in applied_flat_by_category:
-                detail_discounted = max(0, detail_discounted - applied_flat_by_category[detail_cat])
+                candidates.append(max(0, price_val - applied_flat_by_category[detail_cat]))
+            if applied_flat > 0:
+                candidates.append(max(0, price_val - applied_flat))
+            detail_discounted = min(candidates)
 
         if detail_is_free:
             st.subheader(f"{escape_dollars(name)} — ~~\\${price_val:.2f}~~ :green[FREE]")
@@ -1250,18 +1254,20 @@ def open_order_dialog():
 
                 # Check if this item is free via a deal
                 is_free = any(fi in name.lower() for fi in applied_free_items)
-                # Calculate discounted price
+                # Calculate discounted price — best single discount wins, no stacking
                 item_cat = item.get("category", "").lower()
                 discounted_price = price_val
                 if is_free:
                     discounted_price = 0
                 else:
-                    # Apply percent deals (all items)
+                    candidates = [price_val]  # original price is the fallback
                     if applied_percent > 0:
-                        discounted_price = price_val * (1 - applied_percent / 100)
-                    # Apply category-targeted flat deals
+                        candidates.append(price_val * (1 - applied_percent / 100))
                     if item_cat in applied_flat_by_category:
-                        discounted_price = max(0, discounted_price - applied_flat_by_category[item_cat])
+                        candidates.append(max(0, price_val - applied_flat_by_category[item_cat]))
+                    if applied_flat > 0:
+                        candidates.append(max(0, price_val - applied_flat))
+                    discounted_price = min(candidates)  # best deal = lowest price
 
                 col_info, col_price, col_add = st.columns([4, 1, 1])
                 with col_info:
