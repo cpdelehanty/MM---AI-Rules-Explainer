@@ -175,7 +175,12 @@ def build_cart_context(cart, deals_applied):
     for item in cart:
         line_total = item["price"] * item["qty"]
         subtotal += line_total
-        lines.append(f"  - {item['name']} x{item['qty']} @ ${item['price']:.2f} = ${line_total:.2f}")
+        desc = f"  - {item['name']} x{item['qty']} @ ${item['price']:.2f} = ${line_total:.2f}"
+        if item.get("options"):
+            desc += f" [{item['options']}]"
+        if item.get("notes"):
+            desc += f" (Note: {item['notes']})"
+        lines.append(desc)
     lines.append(f"  SUBTOTAL: ${subtotal:.2f}")
     if deals_applied:
         for deal in deals_applied:
@@ -190,86 +195,17 @@ def get_cart_subtotal(cart):
 
 def process_order_tags(response_text, cart, deals_applied, eligible_deals, phone, visit_id):
     """
-    Parse order tags from AI response, validate server-side, update cart.
-    Returns (cleaned_response, order_placed).
+    Strip any stray order tags from AI response.
+    Ordering is now handled by the visual dialog — this is a safety net only.
+    Returns (cleaned_response, order_placed=False).
     """
-    menu_items = {item["item_id"]: item for item in get_menu_items(available_only=True)}
-    eligible_ids = {d["deal_id"] for d in eligible_deals}
-    order_placed = False
-
-    # Process ORDER_ADD tags
-    for match in ORDER_ADD_RE.finditer(response_text):
-        item_id = match.group(1).strip()
-        qty = int(match.group(2))
-        if item_id in menu_items:
-            menu_item = menu_items[item_id]
-            try:
-                price = float(menu_item.get("price", "0").replace("$", ""))
-            except (ValueError, TypeError):
-                price = 0
-            # Check if already in cart — update qty
-            existing = next((c for c in cart if c["item_id"] == item_id), None)
-            if existing:
-                existing["qty"] += qty
-            else:
-                cart.append({
-                    "item_id": item_id,
-                    "name": menu_item["name"],
-                    "price": price,
-                    "qty": qty,
-                })
-        else:
-            # Invalid item — log security event
-            log_security_event(phone, "invalid_order_item",
-                f"AI tried to add non-existent item: {item_id}",
-                ai_response_snippet=response_text[:200])
-
-    # Process ORDER_REMOVE tags
-    for match in ORDER_REMOVE_RE.finditer(response_text):
-        item_id = match.group(1).strip()
-        cart[:] = [c for c in cart if c["item_id"] != item_id]
-
-    # Process DEAL_APPLY tags
-    for match in DEAL_APPLY_RE.finditer(response_text):
-        deal_id = match.group(1).strip()
-        if deal_id in eligible_ids:
-            deal_info = next(d for d in eligible_deals if d["deal_id"] == deal_id)
-            if not any(d["deal_id"] == deal_id for d in deals_applied):
-                deals_applied.append(deal_info)
-        else:
-            # Invalid deal — log security event
-            log_security_event(phone, "invalid_deal_apply",
-                f"AI tried to apply non-eligible deal: {deal_id}",
-                ai_response_snippet=response_text[:200])
-
-    # Process ORDER_PLACE
-    if ORDER_PLACE_RE.search(response_text):
-        if cart:
-            # Recalculate totals server-side (never trust AI math)
-            subtotal = get_cart_subtotal(cart)
-            total = subtotal  # TODO: apply validated deal discounts
-            order_id = str(uuid.uuid4())[:8]
-
-            items_json = json.dumps(cart)
-            deals_json = json.dumps(deals_applied) if deals_applied else ""
-
-            # Save locally
-            save_order(order_id, phone, visit_id, items_json, subtotal, deals_json, total)
-
-            # Transmit to Google Sheets
-            transmit_order_to_sheet(order_id, phone, items_json, deals_json, subtotal, total)
-
-            order_placed = True
-
-    # Strip all order tags from response
     cleaned = ORDER_ADD_RE.sub("", response_text)
     cleaned = ORDER_REMOVE_RE.sub("", cleaned)
     cleaned = ORDER_CONFIRM_RE.sub("", cleaned)
     cleaned = ORDER_PLACE_RE.sub("", cleaned)
     cleaned = DEAL_APPLY_RE.sub("", cleaned)
     cleaned = cleaned.strip()
-
-    return cleaned, order_placed
+    return cleaned, False
 
 
 # Suspicious prompt patterns for security logging
@@ -877,7 +813,7 @@ def translate_app_ui(language, _api_key):
             max_tokens=500,
             messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation.
 
-{{"subtitle": "Your game night assistant — browse our game library, learn the rules, check out the menu, and more.", "browse_games": "Browse games", "rules_help": "Rules help", "order": "Order", "get_staff": "Get staff help", "chat_placeholder": "Ask about rules, the menu, or anything else...", "currently_helping": "Currently helping with", "pages": "Pages", "your_cart": "Your Cart", "cart_empty": "Your cart is empty — add items from the menu above!", "subtotal": "Subtotal", "place_order": "Place Order", "confirm_order": "Confirm Your Order", "confirm_order_btn": "Confirm Order", "go_back": "Go Back", "deals_for_you": "Deals for you", "almost_there": "Almost there", "apply": "Apply", "menu_empty": "Menu is currently unavailable. Please ask a staff member.", "add_to_order": "Add to Order", "choose_option": "Choose your option", "quantity": "Quantity", "special_notes": "Special requests / notes", "notes_placeholder": "e.g. no onions, extra cheese, allergies..."}}"""}]
+{{"subtitle": "Your game night assistant — browse our game library, learn the rules, check out the menu, and more.", "browse_games": "Browse games", "rules_help": "Rules help", "order": "Order", "get_staff": "Get staff help", "chat_placeholder": "Ask about rules, the menu, or anything else...", "currently_helping": "Currently helping with", "pages": "Pages", "your_cart": "Your Cart", "cart_empty": "Your cart is empty — add items from the menu above!", "subtotal": "Subtotal", "place_order": "Place Order", "confirm_order": "Confirm Your Order", "confirm_order_btn": "Confirm Order", "go_back": "Go Back", "deals_for_you": "Deals for you", "almost_there": "Almost there", "apply": "Apply", "menu_empty": "Menu is currently unavailable. Please ask a staff member.", "add_to_order": "Add to Order", "choose_option": "Choose your option", "choose_flavors": "Choose your flavors", "quantity": "Quantity", "special_notes": "Special requests / notes", "notes_placeholder": "e.g. no onions, extra cheese, allergies...", "added_to_cart": "added to cart", "order_placed": "Order placed!", "total": "Total", "tax": "Tax", "discount": "Discount", "added_to_tab": "This will be added to your tab, which includes your table time and any other orders from this visit.", "cart_empty_error": "Your cart is empty."}}"""}]
         )
         text = result.content[0].text.strip()
         if text.startswith("```"):
@@ -1000,17 +936,31 @@ def open_order_dialog():
             st.markdown(item_line)
         st.divider()
 
+        # Deal discounts
+        discount = 0
         if st.session_state.deals_applied:
             for deal in st.session_state.deals_applied:
                 st.markdown(f"🏷️ {escape_dollars(deal.get('display_text', deal.get('deal_id', '')))}")
+                dtype = deal.get("discount_type", "")
+                dval = float(deal.get("discount_value", 0) or 0)
+                if dtype == "percent":
+                    discount += subtotal * (dval / 100)
+                elif dtype == "flat":
+                    discount += dval
+            if discount > 0:
+                discount = min(discount, subtotal)  # Can't discount more than subtotal
+                st.markdown(f"🏷️ {ui.get('discount', 'Discount')}: -\\${discount:.2f}")
             st.divider()
 
         # Tax and total
         NYC_SALES_TAX = 0.08875
-        tax = subtotal * NYC_SALES_TAX
-        total_with_tax = subtotal + tax
+        discounted_subtotal = subtotal - discount
+        tax = discounted_subtotal * NYC_SALES_TAX
+        total_with_tax = discounted_subtotal + tax
 
         st.markdown(f"{ui.get('subtotal', 'Subtotal')}: \\${subtotal:.2f}")
+        if discount > 0:
+            st.markdown(f"{ui.get('discount', 'Discount')}: -\\${discount:.2f}")
         st.markdown(f"{ui.get('tax', 'Tax')} (8.875%): \\${tax:.2f}")
         st.markdown(f"**{ui.get('total', 'Total')}: \\${total_with_tax:.2f}**")
 
@@ -1023,10 +973,23 @@ def open_order_dialog():
                 st.session_state.dialog_view = "menu"
                 st.rerun(scope="fragment")
         with col_confirm:
-            if st.button(f"✅ {ui.get('confirm_order_btn', 'Confirm Order')}", use_container_width=True, type="primary", key="confirm_place"):
+            if not cart:
+                st.warning(ui.get("cart_empty_error", "Your cart is empty."))
+            elif st.button(f"✅ {ui.get('confirm_order_btn', 'Confirm Order')}", use_container_width=True, type="primary", key="confirm_place"):
                 subtotal = get_cart_subtotal(cart)
-                tax = subtotal * NYC_SALES_TAX
-                total = subtotal + tax
+                # Recalculate discount server-side
+                discount = 0
+                for deal in st.session_state.deals_applied:
+                    dtype = deal.get("discount_type", "")
+                    dval = float(deal.get("discount_value", 0) or 0)
+                    if dtype == "percent":
+                        discount += subtotal * (dval / 100)
+                    elif dtype == "flat":
+                        discount += dval
+                discount = min(discount, subtotal)
+                discounted_subtotal = subtotal - discount
+                tax = discounted_subtotal * NYC_SALES_TAX
+                total = discounted_subtotal + tax
                 order_id = str(uuid.uuid4())[:8]
                 items_json = json.dumps(cart)
                 deals_json = json.dumps(st.session_state.deals_applied) if st.session_state.deals_applied else ""
@@ -1042,9 +1005,10 @@ def open_order_dialog():
                     reason="food_order"
                 )
 
-                order_summary = f"Order placed! (#{order_id}) — " + ", ".join(
+                order_placed_text = ui.get("order_placed", "Order placed!")
+                order_summary = f"{order_placed_text} (#{order_id}) — " + ", ".join(
                     f"{item['name']} x{item['qty']}" for item in cart
-                ) + f" — Total: \\${total:.2f}"
+                ) + f" — {ui.get('total', 'Total')}: \\${total:.2f}"
                 st.session_state.messages.append({"role": "assistant", "content": order_summary})
 
                 st.session_state.cart = []
@@ -1159,10 +1123,16 @@ def open_order_dialog():
 
             st.session_state.dialog_view = "menu"
             st.session_state.detail_item = None
+            st.session_state.cart_feedback = f"✓ {name} {ui.get('added_to_cart', 'added to cart')}"
             st.rerun(scope="fragment")
         return
 
     # ========== MENU BROWSING VIEW ==========
+    # Show "added to cart" feedback
+    if st.session_state.get("cart_feedback"):
+        st.success(st.session_state.cart_feedback)
+        st.session_state.cart_feedback = None
+
     tabs = st.tabs(tab_labels)
 
     for i, cat in enumerate(cat_names):
@@ -1208,31 +1178,31 @@ def open_order_dialog():
 
         for idx, item in enumerate(st.session_state.cart):
             line_total = item["price"] * item["qty"]
-            col_name, col_minus, col_qty, col_plus, col_total, col_rm = st.columns([3, 0.5, 0.5, 0.5, 1, 0.5])
-            with col_name:
-                label = f"**{escape_dollars(item['name'])}**"
-                if item.get("options"):
-                    label += f"  \n*{escape_dollars(item['options'])}*"
-                if item.get("notes"):
-                    label += f"  \n*{escape_dollars(item['notes'])}*"
-                st.markdown(label)
+            # Mobile-friendly: 2-row layout instead of 6 tiny columns
+            # Row 1: item name + price
+            label = f"**{escape_dollars(item['name'])}** — \\${line_total:.2f}"
+            if item.get("options"):
+                label += f"  \n*{escape_dollars(item['options'])}*"
+            if item.get("notes"):
+                label += f"  \n*{escape_dollars(item['notes'])}*"
+            st.markdown(label)
+            # Row 2: controls
+            col_minus, col_qty, col_plus, col_rm = st.columns([1, 1, 1, 1])
             with col_minus:
-                if st.button("−", key=f"cart_minus_{item['item_id']}_{idx}"):
+                if st.button("➖", key=f"cart_minus_{item['item_id']}_{idx}", use_container_width=True):
                     if item["qty"] > 1:
                         item["qty"] -= 1
                     else:
                         st.session_state.cart.pop(idx)
                     st.rerun(scope="fragment")
             with col_qty:
-                st.markdown(f"**{item['qty']}**")
+                st.markdown(f"<div style='text-align:center;padding:8px;font-weight:bold;'>{item['qty']}</div>", unsafe_allow_html=True)
             with col_plus:
-                if st.button("+", key=f"cart_plus_{item['item_id']}_{idx}"):
+                if st.button("➕", key=f"cart_plus_{item['item_id']}_{idx}", use_container_width=True):
                     item["qty"] += 1
                     st.rerun(scope="fragment")
-            with col_total:
-                st.markdown(f"\\${line_total:.2f}")
             with col_rm:
-                if st.button("🗑️", key=f"cart_rm_{item['item_id']}_{idx}"):
+                if st.button("🗑️", key=f"cart_rm_{item['item_id']}_{idx}", use_container_width=True):
                     st.session_state.cart.pop(idx)
                     st.rerun(scope="fragment")
 
