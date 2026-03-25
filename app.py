@@ -277,11 +277,14 @@ def load_menu():
 def load_deals_and_events():
     """Sync deals, events, and auto-deal rules from Google Sheets if needed (daily)"""
     if should_sync_deals():
-        sync_deals_from_sheets()
+        result = sync_deals_from_sheets()
+        print(f"[DEALS SYNC] {result}")
     if should_sync_events():
-        sync_events_from_sheets()
+        result = sync_events_from_sheets()
+        print(f"[EVENTS SYNC] {result}")
     if should_sync_auto_rules():
-        sync_auto_rules_from_sheets()
+        result = sync_auto_rules_from_sheets()
+        print(f"[AUTO RULES SYNC] {result}")
     return True
 
 @st.cache_resource(ttl=86400)
