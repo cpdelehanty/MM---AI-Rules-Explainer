@@ -1335,7 +1335,23 @@ def open_order_dialog():
                     st.rerun(scope="fragment")
 
         st.divider()
+
+        # Calculate discount from applied deals
+        cart_discount = 0
+        for deal in st.session_state.deals_applied:
+            dtype = deal.get("discount_type", "")
+            dval = float(deal.get("discount_value", 0) or 0)
+            if dtype == "percent":
+                cart_discount += cart_total * (dval / 100)
+            elif dtype == "flat":
+                cart_discount += dval
+        cart_discount = min(cart_discount, cart_total)
+        cart_after_discount = cart_total - cart_discount
+
         st.markdown(f"**{ui.get('subtotal', 'Subtotal')}: \\${cart_total:.2f}**")
+        if cart_discount > 0:
+            st.markdown(f":green[**{ui.get('discount', 'Discount')}: -\\${cart_discount:.2f}**]")
+            st.markdown(f"**{ui.get('total', 'Total')}: \\${cart_after_discount:.2f}**")
 
         # Deals
         customer_profile_for_deals = None
@@ -1384,8 +1400,9 @@ def open_order_dialog():
                                     break
                     st.rerun(scope="fragment")
 
-        # Place order button
-        if st.button(f"🛒 {ui.get('place_order', 'Place Order')} — \\${cart_total:.2f}", use_container_width=True, type="primary", key="place_order"):
+        # Place order button (show discounted total if applicable)
+        display_total = cart_after_discount if cart_discount > 0 else cart_total
+        if st.button(f"🛒 {ui.get('place_order', 'Place Order')} — \\${display_total:.2f}", use_container_width=True, type="primary", key="place_order"):
             st.session_state.dialog_view = "confirm"
             st.rerun(scope="fragment")
 
