@@ -1129,15 +1129,22 @@ def open_order_dialog():
         )
         total_discounts = discount + upsell_savings
 
+        # Original total (full prices before any discounts)
+        original_total = sum(
+            float(item.get("original_price", item["price"])) * item.get("qty", 1)
+            for item in cart
+        )
+
         # Tax and total
         NYC_SALES_TAX = 0.08875
         discounted_subtotal = subtotal - discount
         tax = discounted_subtotal * NYC_SALES_TAX
         total_with_tax = discounted_subtotal + tax
 
-        st.markdown(f"{ui.get('subtotal', 'Subtotal')}: \\${subtotal:.2f}")
         if total_discounts > 0:
+            st.markdown(f"{ui.get('original_total', 'Original Total')}: \\${original_total:.2f}")
             st.markdown(f":green[{ui.get('total_discounts', 'Total Discounts')}: -\\${total_discounts:.2f}]")
+        st.markdown(f"{ui.get('subtotal', 'Subtotal')}: \\${discounted_subtotal:.2f}")
         st.markdown(f"{ui.get('tax', 'Tax')} (8.875%): \\${tax:.2f}")
         st.markdown(f"**{ui.get('total', 'Total')}: \\${total_with_tax:.2f}**")
 
@@ -1525,11 +1532,16 @@ def open_order_dialog():
         total_discounts = deal_discount + upsell_savings
         cart_after_discount = cart_total - deal_discount
 
-        st.markdown(f"**{ui.get('subtotal', 'Subtotal')}: \\${cart_total:.2f}**")
+        # Original total (full prices before any discounts)
+        original_cart_total = sum(
+            float(item.get("original_price", item["price"])) * item.get("qty", 1)
+            for item in st.session_state.cart
+        )
+
         if total_discounts > 0:
+            st.markdown(f"**{ui.get('original_total', 'Original Total')}: \\${original_cart_total:.2f}**")
             st.markdown(f":green[**{ui.get('total_discounts', 'Total Discounts')}: -\\${total_discounts:.2f}**]")
-        if deal_discount > 0:
-            st.markdown(f"**{ui.get('total', 'Total')}: \\${cart_after_discount:.2f}**")
+        st.markdown(f"**{ui.get('subtotal', 'Subtotal')}: \\${cart_after_discount:.2f}**")
 
         # Deals
         customer_profile_for_deals = None
