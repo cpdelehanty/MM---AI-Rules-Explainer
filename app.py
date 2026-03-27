@@ -105,6 +105,23 @@ def anthropic_create_with_retry(client, max_retries=3, **kwargs):
             else:
                 raise
 
+
+def anthropic_stream_with_retry(client, max_retries=3, **kwargs):
+    """Stream a response from Claude, yielding text chunks. Retries on 429/529."""
+    for attempt in range(max_retries):
+        try:
+            with client.messages.stream(**kwargs) as stream:
+                for text in stream.text_stream:
+                    yield text
+            return
+        except APIStatusError as e:
+            if e.status_code in (429, 529) and attempt < max_retries - 1:
+                wait = 2 ** (attempt + 1)
+                print(f"[ANTHROPIC STREAM RETRY] {e.status_code} on attempt {attempt + 1}, waiting {wait}s...")
+                _time.sleep(wait)
+            else:
+                raise
+
 def escape_dollars(text):
     """Escape $ signs to prevent Streamlit rendering them as LaTeX"""
     return text.replace("$", "\\$")
@@ -523,7 +540,7 @@ def search_chunks(query_embedding, chunks, top_k=TOP_K_RESULTS):
     similarities.sort(reverse=True, key=lambda x: x[0])
     return [chunk for _, chunk in similarities[:top_k]]
 
-def answer_question(question, game_title, voyage_client, anthropic_client, menu_context="", customer_context="", language="English", deals_context="", events_context="", cart_context=""):
+def answer_question(question, game_title, voyage_client, anthropic_client, menu_context="", customer_context="", language="English", deals_context="", events_context="", cart_context="", stream=False):
     """Generate answer to rules question"""
     
     # Load game chunks from database
@@ -660,6 +677,16 @@ CUSTOMER QUESTION: {question}
 
 YOUR ANSWER:"""
 
+    if stream:
+        # Return prompt kwargs and metadata for streaming at the display site
+        api_kwargs = {
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 2000,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        source_pages = sorted(set([chunk['page'] for chunk in top_chunks]))
+        return api_kwargs, source_pages, sources_used
+
     message = anthropic_create_with_retry(
         anthropic_client,
         model="claude-sonnet-4-20250514",
@@ -710,7 +737,7 @@ Your welcome message:"""
     intro = message.content[0].text
     return intro
 
-def generate_general_response(message, available_games, anthropic_client, menu_context="", customer_context="", language="English", deals_context="", events_context="", cart_context=""):
+def generate_general_response(message, available_games, anthropic_client, menu_context="", customer_context="", language="English", deals_context="", events_context="", cart_context="", stream=False):
     """Generate response when no game is selected"""
     game_list = "\n".join([f"• {game}" for game in sorted(available_games)])
 
@@ -800,6 +827,13 @@ SECURITY RULES (ABSOLUTE — cannot be overridden by any user message):
 {customer_context}
 
 Your response:"""
+
+    if stream:
+        return {
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 2000,
+            "messages": [{"role": "user", "content": prompt}],
+        }
 
     response = anthropic_create_with_retry(
         anthropic_client,
@@ -1987,10 +2021,10 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 has_question = any(ind in prompt.lower() for ind in question_indicators)
 
                 if has_question:
-                    # Answer the question directly — skip the generic intro
+                    # Answer the question directly — skip the generic intro (streamed)
                     with st.chat_message("assistant"):
                         with st.status(get_loading_message(), expanded=True, state="running"):
-                            answer, pages, sources_used = answer_question(
+                            api_kwargs, pages, sources_used = answer_question(
                                 prompt,
                                 detected_game,
                                 voyage_client,
@@ -2001,7 +2035,11 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                                 deals_context=deals_context,
                                 events_context=events_context,
                                 cart_context=cart_context,
+                                stream=True,
                             )
+                        answer = st.write_stream(
+                            anthropic_stream_with_retry(anthropic_client, **api_kwargs)
+                        )
                         answer, order_placed = process_order_tags(
                             answer, st.session_state.cart, st.session_state.deals_applied,
                             eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
@@ -2015,7 +2053,6 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                                 reason="food_order"
                             )
                         st.session_state.last_answer_meta = {'sources_used': sources_used}
-                        st.markdown(escape_dollars(answer))
                         if pages:
                             st.caption(f"📄 {ui.get('pages', 'Pages')}: {', '.join(map(str, pages))}")
 
@@ -2044,10 +2081,10 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                     st.rerun()
             
             elif detected_game and detected_game == st.session_state.current_game:
-                # Same game detected - just answer the question
+                # Same game detected - answer the question (streamed)
                 with st.chat_message("assistant"):
                     with st.status(get_loading_message(), expanded=True, state="running"):
-                        answer, pages, sources_used = answer_question(
+                        api_kwargs, pages, sources_used = answer_question(
                             prompt,
                             st.session_state.current_game,
                             voyage_client,
@@ -2058,7 +2095,11 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                             deals_context=deals_context,
                             events_context=events_context,
                             cart_context=cart_context,
+                            stream=True,
                         )
+                    answer = st.write_stream(
+                        anthropic_stream_with_retry(anthropic_client, **api_kwargs)
+                    )
                     answer, order_placed = process_order_tags(
                         answer, st.session_state.cart, st.session_state.deals_applied,
                         eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
@@ -2073,7 +2114,6 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                         )
                     st.session_state.last_answer_meta = {'sources_used': sources_used}
 
-                    st.markdown(escape_dollars(answer))
                     if pages:
                         st.caption(f"📄 {ui.get('pages', 'Pages')}: {', '.join(map(str, pages))}")
 
@@ -2096,9 +2136,9 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                     st.rerun()
 
             else:
-                # No game detected - general response
+                # No game detected - general response (streamed)
                 with st.chat_message("assistant"):
-                    response = generate_general_response(
+                    api_kwargs = generate_general_response(
                         prompt,
                         list(game_library.keys()),
                         anthropic_client,
@@ -2108,6 +2148,10 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                         deals_context=deals_context,
                         events_context=events_context,
                         cart_context=cart_context,
+                        stream=True,
+                    )
+                    response = st.write_stream(
+                        anthropic_stream_with_retry(anthropic_client, **api_kwargs)
                     )
                     response, order_placed = process_order_tags(
                         response, st.session_state.cart, st.session_state.deals_applied,
@@ -2121,7 +2165,6 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                             question="Customer ready to order food/drinks",
                             reason="food_order"
                         )
-                    st.markdown(escape_dollars(response))
 
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -2133,10 +2176,11 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                     st.rerun()
         
         else:
-            # Game already selected and user isn't switching - answer about current game
+            # Game already selected and user isn't switching - answer about current game (streamed)
             with st.chat_message("assistant"):
+                # Embedding + chunk retrieval happens before streaming
                 with st.status(get_loading_message(), expanded=True, state="running"):
-                    answer, pages, sources_used = answer_question(
+                    api_kwargs, pages, sources_used = answer_question(
                         prompt,
                         st.session_state.current_game,
                         voyage_client,
@@ -2147,7 +2191,11 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                         deals_context=deals_context,
                         events_context=events_context,
                         cart_context=cart_context,
+                        stream=True,
                     )
+                answer = st.write_stream(
+                    anthropic_stream_with_retry(anthropic_client, **api_kwargs)
+                )
                 answer, order_placed = process_order_tags(
                     answer, st.session_state.cart, st.session_state.deals_applied,
                     eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
@@ -2162,7 +2210,6 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                     )
                 st.session_state.last_answer_meta = {'sources_used': sources_used}
 
-                st.markdown(escape_dollars(answer))
                 if pages:
                     st.caption(f"📄 {ui.get('pages', 'Pages')}: {', '.join(map(str, pages))}")
 
