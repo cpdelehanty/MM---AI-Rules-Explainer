@@ -175,7 +175,7 @@ def build_cart_context(cart, deals_applied):
     lines = ["CURRENT_CART:"]
     subtotal = 0
     for item in cart:
-        line_total = item["price"] * item["qty"]
+        line_total = item["price"] * item.get("qty", 1)
         subtotal += line_total
         desc = f"  - {item['name']} x{item['qty']} @ ${item['price']:.2f} = ${line_total:.2f}"
         if item.get("options"):
@@ -192,7 +192,7 @@ def build_cart_context(cart, deals_applied):
 
 def get_cart_subtotal(cart):
     """Calculate cart subtotal from items."""
-    return sum(item["price"] * item["qty"] for item in cart)
+    return sum(item["price"] * item.get("qty", 1) for item in cart)
 
 
 def process_order_tags(response_text, cart, deals_applied, eligible_deals, phone, visit_id):
@@ -956,7 +956,7 @@ def open_order_dialog():
         cart = st.session_state.cart
         subtotal = 0
         for item in cart:
-            line_total = item["price"] * item["qty"]
+            line_total = item["price"] * item.get("qty", 1)
             subtotal += line_total
             item_line = f"**{escape_dollars(item['name'])}** x{item['qty']} — \\${line_total:.2f}"
             if item.get("options"):
@@ -1237,67 +1237,6 @@ def open_order_dialog():
         st.success(st.session_state.cart_feedback)
         st.session_state.cart_feedback = None
 
-    # --- Deals landing: show eligible deals at the top ---
-    customer_profile_for_deals = None
-    if st.session_state.customer_phone and st.session_state.customer_phone != "ANON":
-        customer_profile_for_deals = get_customer(st.session_state.customer_phone)
-
-    cart_subtotal_now = get_cart_subtotal(st.session_state.cart)
-    eligible_deals_top, _ = evaluate_deals(customer_profile_for_deals, cart_subtotal_now)
-
-    # Show single best eligible deal (no stacking — best deal wins)
-    if eligible_deals_top:
-        # Pick the best deal: free_item first, then highest percent, then highest flat
-        def _deal_value(d):
-            dtype = d.get("discount_type", "")
-            dval = float(d.get("discount_value", 0) or 0)
-            if dtype == "free_item":
-                return 1000  # always best
-            elif dtype == "percent":
-                return dval
-            elif dtype == "flat":
-                return dval
-            return 0
-        best_deal = max(eligible_deals_top, key=_deal_value)
-        already_applied = any(d["deal_id"] == best_deal["deal_id"] for d in st.session_state.deals_applied)
-
-        st.markdown(f"**🏷️ {ui.get('your_deal', 'Your Deal')}**")
-        if already_applied:
-            st.success(f"✅ {escape_dollars(best_deal['display_text'])}")
-        else:
-            col_deal, col_apply = st.columns([4, 1])
-            with col_deal:
-                st.success(escape_dollars(best_deal["display_text"]))
-            with col_apply:
-                if st.button(ui.get("apply", "Apply"), key=f"top_deal_{best_deal['deal_id']}", use_container_width=True):
-                    st.session_state.deals_applied.append(best_deal)
-                    # Auto-add free item to cart
-                    if best_deal.get("discount_type") == "free_item":
-                        free_name = best_deal.get("free_item_description", "")
-                        if free_name:
-                            all_items = get_menu_items(available_only=True)
-                            for mi in all_items:
-                                if mi["name"].lower() == free_name.lower():
-                                    already_in_cart = any(
-                                        c.get("item_id") == mi["item_id"] and c.get("deal_id") == best_deal["deal_id"]
-                                        for c in st.session_state.cart
-                                    )
-                                    if not already_in_cart:
-                                        st.session_state.cart.append({
-                                            "item_id": mi["item_id"],
-                                            "name": mi["name"],
-                                            "category": mi.get("category", ""),
-                                            "price": 0,
-                                            "original_price": float(str(mi.get("price", "0")).replace("$", "") or 0),
-                                            "quantity": 1,
-                                            "qty": 1,
-                                            "notes": f"FREE — {best_deal['display_text']}",
-                                            "deal_id": best_deal["deal_id"],
-                                        })
-                                    break
-                    st.rerun(scope="fragment")
-        st.divider()
-
     tabs = st.tabs(tab_labels)
 
     for i, cat in enumerate(cat_names):
@@ -1366,7 +1305,7 @@ def open_order_dialog():
         st.subheader(f"🛒 {ui.get('your_cart', 'Your Cart')} ({cart_count})")
 
         for idx, item in enumerate(st.session_state.cart):
-            line_total = item["price"] * item["qty"]
+            line_total = item["price"] * item.get("qty", 1)
             # Mobile-friendly: 2-row layout instead of 6 tiny columns
             # Row 1: item name + price
             label = f"**{escape_dollars(item['name'])}** — \\${line_total:.2f}"
@@ -1379,8 +1318,8 @@ def open_order_dialog():
             col_minus, col_qty, col_plus, col_rm = st.columns([1, 1, 1, 1])
             with col_minus:
                 if st.button("➖", key=f"cart_minus_{item['item_id']}_{idx}", use_container_width=True):
-                    if item["qty"] > 1:
-                        item["qty"] -= 1
+                    if item.get("qty", 1) > 1:
+                        item["qty"] = item.get("qty", 1) - 1
                     else:
                         st.session_state.cart.pop(idx)
                     st.rerun(scope="fragment")
@@ -1388,7 +1327,7 @@ def open_order_dialog():
                 st.markdown(f"<div style='text-align:center;padding:8px;font-weight:bold;'>{item['qty']}</div>", unsafe_allow_html=True)
             with col_plus:
                 if st.button("➕", key=f"cart_plus_{item['item_id']}_{idx}", use_container_width=True):
-                    item["qty"] += 1
+                    item["qty"] = item.get("qty", 1) + 1
                     st.rerun(scope="fragment")
             with col_rm:
                 if st.button("🗑️", key=f"cart_rm_{item['item_id']}_{idx}", use_container_width=True):
@@ -1766,7 +1705,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             st.rerun()
     with cols[2]:
         # Cart count badge
-        cart_count = sum(item["qty"] for item in st.session_state.cart) if st.session_state.cart else 0
+        cart_count = sum(item.get("qty", 1) for item in st.session_state.cart) if st.session_state.cart else 0
         order_label = ui.get("order", "Order")
         if cart_count > 0:
             order_label = f"{order_label} ({cart_count})"
