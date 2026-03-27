@@ -533,6 +533,159 @@ def evaluate_auto_deals(cart_subtotal=0):
     return offers
 
 
+# --- Cart-Based Upsell Engine ---
+
+# Category groupings for cart analysis
+DRINK_CATEGORIES = {"beer - draft", "beer - canned", "wine", "non-alc"}
+BEER_CATEGORIES = {"beer - draft", "beer - canned"}
+WINE_CATEGORIES = {"wine"}
+NON_ALC_CATEGORIES = {"non-alc"}
+FOOD_CATEGORIES = {"popcorn", "snacks", "shareables", "sweets"}
+SNACK_CATEGORIES = {"popcorn", "snacks"}
+SWEET_CATEGORIES = {"sweets"}
+SHAREABLE_CATEGORIES = {"shareables"}
+
+
+def _analyze_cart(cart):
+    """Analyze cart composition by category counts."""
+    analysis = {
+        "total_items": 0,
+        "subtotal": 0,
+        "drinks": 0,
+        "beers": 0,
+        "wines": 0,
+        "non_alc": 0,
+        "food": 0,
+        "snacks": 0,
+        "sweets": 0,
+        "shareables": 0,
+        "popcorn": 0,
+        "categories_present": set(),
+    }
+
+    for item in cart:
+        cat = item.get("category", "").lower()
+        price = float(item.get("price", 0) or 0)
+        qty = int(item.get("quantity", 1) or 1)
+
+        analysis["total_items"] += qty
+        analysis["subtotal"] += price * qty
+        analysis["categories_present"].add(cat)
+
+        if cat in DRINK_CATEGORIES:
+            analysis["drinks"] += qty
+        if cat in BEER_CATEGORIES:
+            analysis["beers"] += qty
+        if cat in WINE_CATEGORIES:
+            analysis["wines"] += qty
+        if cat in NON_ALC_CATEGORIES:
+            analysis["non_alc"] += qty
+        if cat in FOOD_CATEGORIES:
+            analysis["food"] += qty
+        if cat in SNACK_CATEGORIES:
+            analysis["snacks"] += qty
+        if cat == "sweets":
+            analysis["sweets"] += qty
+        if cat == "shareables":
+            analysis["shareables"] += qty
+        if cat == "popcorn":
+            analysis["popcorn"] += qty
+
+    return analysis
+
+
+def evaluate_cart_upsells(cart):
+    """
+    Evaluate cart composition and return contextual upsell offers.
+    Returns at most ONE upsell (the highest-priority match).
+
+    Each trigger has:
+    - condition: function of cart analysis
+    - target_category: what to suggest
+    - discount_percent: discount to offer
+    - message: display text
+    - suggested_items: specific item names to call out
+    """
+    if not cart:
+        return None
+
+    a = _analyze_cart(cart)
+
+    # Triggers ordered by priority (first match wins)
+    # More specific triggers go first; broader ones (solo, drinks-only) go last
+    triggers = [
+        # Trigger 2: Beer in Cart, No Snack
+        {
+            "id": "UPSELL_BEER_SNACK",
+            "condition": a["beers"] >= 2 and a["snacks"] == 0 and a["shareables"] == 0,
+            "target_category": "Snacks",
+            "discount_percent": 25,
+            "message": "🥨 Great with beer — add **Pretzel Bites** or **Marinated Olives** for **25% off**!",
+            "suggested_items": ["Pretzel Bites", "Marinated Olives"],
+        },
+        # Trigger 3: Wine in Cart, No Snack
+        {
+            "id": "UPSELL_WINE_SNACK",
+            "condition": a["wines"] >= 1 and a["food"] == 0,
+            "target_category": "Snacks",
+            "discount_percent": 20,
+            "message": "🧀 Pairs beautifully — add a **Cheese Plate** or **Marinated Olives** for **20% off**!",
+            "suggested_items": ["Cheese Plate", "Marinated Olives"],
+        },
+        # Trigger 4: Coffee/Non-Alc Only
+        {
+            "id": "UPSELL_COFFEE_SWEET",
+            "condition": a["non_alc"] > 0 and a["drinks"] == a["non_alc"] and a["food"] == 0,
+            "target_category": "Sweets",
+            "discount_percent": 25,
+            "message": "🍫 Something sweet? Add any dessert for **25% off** with your drink!",
+            "suggested_items": ["Brownie", "Cookie (2-pack)", "Affogato"],
+        },
+        # Trigger 5: Snacks Only, No Shareable (group indicator)
+        {
+            "id": "UPSELL_GROUP_FLATBREAD",
+            "condition": a["subtotal"] >= 15 and a["snacks"] > 0 and a["shareables"] == 0 and a["total_items"] >= 3,
+            "target_category": "Shareables",
+            "discount_percent": 20,
+            "message": "🍕 Feeding the table? Add a **flatbread** for **20% off**!",
+            "suggested_items": ["Flatbread — Margherita", "Flatbread — White"],
+        },
+        # Trigger 7: Large Cart, No Sweet
+        {
+            "id": "UPSELL_LARGE_SWEET",
+            "condition": a["total_items"] >= 4 and a["sweets"] == 0,
+            "target_category": "Sweets",
+            "discount_percent": 25,
+            "message": "🍪 Finish strong — add any dessert for **25% off** with your big order!",
+            "suggested_items": ["Affogato", "Brownie", "Chocolate Bark"],
+        },
+        # Trigger 1: Drinks Only, No Food (broader — catches remaining drink-only carts)
+        {
+            "id": "UPSELL_DRINKS_POPCORN",
+            "condition": a["drinks"] >= 1 and a["food"] == 0,
+            "target_category": "Popcorn",
+            "discount_percent": 30,
+            "message": "🍿 Add any popcorn for **30% off** — perfect with your drink!",
+            "suggested_items": ["Classic Butter Popcorn", "Truffle + Parmesan Popcorn", "Popcorn Flight"],
+        },
+        # Trigger 6: Single Item Cart (Solo Customer) — broadest, lowest priority
+        {
+            "id": "UPSELL_SOLO",
+            "condition": a["total_items"] == 1 and a["subtotal"] < 12,
+            "target_category": "Popcorn",
+            "discount_percent": 40,
+            "message": "🍿 Solo starter deal — add any popcorn for **40% off**!",
+            "suggested_items": ["Classic Butter Popcorn", "Spicy Chile-Lime Popcorn"],
+        },
+    ]
+
+    for trigger in triggers:
+        if trigger["condition"]:
+            return trigger
+
+    return None
+
+
 # --- Events ---
 
 def get_relevant_events(game_title=None):

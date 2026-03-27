@@ -22,6 +22,7 @@ from sync_deals import (
     should_sync_auto_rules, sync_auto_rules_from_sheets,
     format_deals_for_prompt, format_events_for_prompt,
     transmit_order_to_sheet, evaluate_deals, evaluate_auto_deals,
+    evaluate_cart_upsells,
 )
 from user_store import (
     normalize_phone, validate_phone, get_customer, create_customer,
@@ -999,11 +1000,44 @@ def open_order_dialog():
 
         _, near_miss_confirm = evaluate_deals(confirm_profile, discounted_subtotal)
         auto_offers = evaluate_auto_deals(discounted_subtotal)
+        cart_upsell = evaluate_cart_upsells(st.session_state.cart)
 
-        has_upsell = near_miss_confirm or auto_offers
+        has_upsell = near_miss_confirm or auto_offers or cart_upsell
         if has_upsell:
             st.divider()
             st.markdown(f"**💡 {ui.get('before_you_order', 'Before you order...')}**")
+
+            # Cart-based contextual upsell (highest value — show first)
+            if cart_upsell:
+                st.info(escape_dollars(cart_upsell["message"]))
+                # Show suggested items with quick-add buttons
+                suggested = cart_upsell.get("suggested_items", [])
+                discount_pct = cart_upsell.get("discount_percent", 0)
+                target_cat = cart_upsell.get("target_category", "")
+                menu_items = get_menu_items(category=target_cat, available_only=True)
+
+                for mi in menu_items:
+                    mi_name = mi["name"]
+                    if mi_name in suggested:
+                        mi_price = float(mi.get("price", 0) or 0)
+                        discounted = mi_price * (1 - discount_pct / 100)
+                        price_display = f"~~\\${mi_price:.2f}~~ :green[**\\${discounted:.2f}**]"
+                        if st.button(
+                            f"➕ {mi_name} — {price_display}",
+                            key=f"upsell_add_{mi['item_id']}",
+                            use_container_width=True,
+                        ):
+                            st.session_state.cart.append({
+                                "item_id": mi["item_id"],
+                                "name": mi_name,
+                                "category": mi.get("category", ""),
+                                "price": discounted,
+                                "original_price": mi_price,
+                                "quantity": 1,
+                                "notes": f"Upsell: {discount_pct}% off",
+                                "upsell_id": cart_upsell["id"],
+                            })
+                            st.rerun(scope="fragment")
 
             for deal in near_miss_confirm:
                 gap = deal.get("gap", "")
