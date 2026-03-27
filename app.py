@@ -351,7 +351,6 @@ def load_game_library():
 
 QUICK_ACTIONS = {
     "What games do you have?": "browse_games",
-    "I need help with game rules": "rules_help",
     "What's on the menu?": "see_menu",
     "I need help from a staff member": "staff_help",
 }
@@ -1928,7 +1927,10 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 st.rerun()
         with cols[1]:
             if st.button(f"📖 {ui.get('rules_help', 'Rules help')}", use_container_width=True, key="btn_rules"):
-                st.session_state.pending_quick_action = "I need help with game rules"
+                if st.session_state.current_game:
+                    st.session_state.pending_quick_action = f"I need rules help — are we still playing {st.session_state.current_game}?"
+                else:
+                    st.session_state.pending_quick_action = "I need help with game rules — which game are we playing?"
                 st.rerun()
         with cols[2]:
             cart_count = sum(item.get("qty", 1) for item in st.session_state.cart) if st.session_state.cart else 0
