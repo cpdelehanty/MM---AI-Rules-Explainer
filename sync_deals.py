@@ -328,6 +328,119 @@ def sync_auto_rules_from_sheets():
         return {"success": False, "rules_synced": 0, "message": str(e)}
 
 
+# --- Cart Upsells Sync ---
+
+def should_sync_cart_upsells():
+    """Check if we need to sync cart upsells today."""
+    from database import get_last_cart_upsells_sync
+    return get_last_cart_upsells_sync() is None
+
+
+def sync_cart_upsells_from_sheets():
+    """Pull cart upsell rules from Google Sheet and upsert into SQLite."""
+    client, sheet_id = _get_sheets_client()
+    if not client:
+        return {"success": False, "rules_synced": 0, "message": "Missing credentials"}
+
+    try:
+        sheet = client.open_by_key(sheet_id)
+        try:
+            worksheet = sheet.worksheet("Cart Upsells")
+        except Exception:
+            return {"success": True, "rules_synced": 0, "message": "No Cart Upsells tab found (optional)"}
+
+        records = worksheet.get_all_records()
+        if not records:
+            return {"success": True, "rules_synced": 0, "message": "No cart upsell rules defined"}
+
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        cursor = conn.cursor()
+
+        seen_ids = set()
+        synced_count = 0
+
+        for row in records:
+            upsell_id = str(row.get("upsell_id", "")).strip()
+            if not upsell_id:
+                continue
+
+            seen_ids.add(upsell_id)
+            active = 1 if str(row.get("active", "1")).strip().lower() in ("yes", "1", "true") else 0
+
+            def safe_int(val, default=0):
+                try:
+                    return int(val) if val != "" else default
+                except (ValueError, TypeError):
+                    return default
+
+            def safe_float(val, default=0):
+                try:
+                    return float(val) if val != "" else default
+                except (ValueError, TypeError):
+                    return default
+
+            cursor.execute("""
+                INSERT INTO cart_upsells (upsell_id, name, requires_categories, excludes_categories,
+                    min_requires_count, min_items, max_items, min_subtotal, max_subtotal,
+                    target_category, discount_percent, message, suggested_items, priority, active, last_synced)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(upsell_id) DO UPDATE SET
+                    name = excluded.name,
+                    requires_categories = excluded.requires_categories,
+                    excludes_categories = excluded.excludes_categories,
+                    min_requires_count = excluded.min_requires_count,
+                    min_items = excluded.min_items,
+                    max_items = excluded.max_items,
+                    min_subtotal = excluded.min_subtotal,
+                    max_subtotal = excluded.max_subtotal,
+                    target_category = excluded.target_category,
+                    discount_percent = excluded.discount_percent,
+                    message = excluded.message,
+                    suggested_items = excluded.suggested_items,
+                    priority = excluded.priority,
+                    active = excluded.active,
+                    last_synced = CURRENT_TIMESTAMP
+            """, (
+                upsell_id,
+                str(row.get("name", "")).strip(),
+                str(row.get("requires_categories", "")).strip() or None,
+                str(row.get("excludes_categories", "")).strip() or None,
+                safe_int(row.get("min_requires_count", 1), default=1),
+                safe_int(row.get("min_items", 0)),
+                safe_int(row.get("max_items", 0)),
+                safe_float(row.get("min_subtotal", 0)),
+                safe_float(row.get("max_subtotal", 0)),
+                str(row.get("target_category", "")).strip(),
+                safe_float(row.get("discount_percent", 0)),
+                str(row.get("message", "")).strip(),
+                str(row.get("suggested_items", "")).strip() or None,
+                safe_int(row.get("priority", 10), default=10),
+                active,
+            ))
+            synced_count += 1
+
+        if seen_ids:
+            placeholders = ",".join("?" * len(seen_ids))
+            cursor.execute(f"UPDATE cart_upsells SET active = 0 WHERE upsell_id NOT IN ({placeholders})", list(seen_ids))
+
+        cursor.execute("INSERT INTO cart_upsells_sync_log (rules_synced, status) VALUES (?, 'success')", (synced_count,))
+        conn.commit()
+        conn.close()
+
+        return {"success": True, "rules_synced": synced_count, "message": f"Synced {synced_count} cart upsell rules"}
+
+    except Exception as e:
+        print(f"[CART UPSELLS SYNC] Error: {e}")
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=10)
+            conn.execute("INSERT INTO cart_upsells_sync_log (rules_synced, status) VALUES (0, ?)", (f"error: {str(e)[:200]}",))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+        return {"success": False, "rules_synced": 0, "message": str(e)}
+
+
 # --- Order transmission ---
 
 def transmit_order_to_sheet(order_id, phone, items_json, deals_json, subtotal, total):
@@ -596,92 +709,79 @@ def _analyze_cart(cart):
 
 def evaluate_cart_upsells(cart):
     """
-    Evaluate cart composition and return contextual upsell offers.
-    Returns at most ONE upsell (the highest-priority match).
+    Evaluate cart composition against sheet-driven upsell rules.
+    Returns at most ONE upsell (the highest-priority match, lowest number = highest priority).
 
-    Each trigger has:
-    - condition: function of cart analysis
-    - target_category: what to suggest
-    - discount_percent: discount to offer
-    - message: display text
-    - suggested_items: specific item names to call out
+    Rules are loaded from the cart_upsells DB table (synced from Google Sheets).
+    Each rule specifies:
+    - requires_categories: comma-separated categories that must be in the cart
+    - excludes_categories: comma-separated categories that must NOT be in the cart
+    - min_requires_count: minimum number of items from required categories
+    - min_items / max_items: total cart item count constraints (0 = no limit)
+    - min_subtotal / max_subtotal: cart subtotal constraints (0 = no limit)
     """
     if not cart:
         return None
 
     a = _analyze_cart(cart)
+    from database import get_cart_upsell_rules
+    rules = get_cart_upsell_rules()  # already ordered by priority ASC
 
-    # Triggers ordered by priority (first match wins)
-    # More specific triggers go first; broader ones (solo, drinks-only) go last
-    triggers = [
-        # Trigger 2: Beer in Cart, No Snack
-        {
-            "id": "UPSELL_BEER_SNACK",
-            "condition": a["beers"] >= 2 and a["snacks"] == 0 and a["shareables"] == 0,
-            "target_category": "Snacks",
-            "discount_percent": 25,
-            "message": "🥨 Great with beer — add **Pretzel Bites** or **Marinated Olives** for **25% off**!",
-            "suggested_items": ["Pretzel Bites", "Marinated Olives"],
-        },
-        # Trigger 3: Wine in Cart, No Snack
-        {
-            "id": "UPSELL_WINE_SNACK",
-            "condition": a["wines"] >= 1 and a["food"] == 0,
-            "target_category": "Snacks",
-            "discount_percent": 20,
-            "message": "🧀 Pairs beautifully — add a **Cheese Plate** or **Marinated Olives** for **20% off**!",
-            "suggested_items": ["Cheese Plate", "Marinated Olives"],
-        },
-        # Trigger 4: Coffee/Non-Alc Only
-        {
-            "id": "UPSELL_COFFEE_SWEET",
-            "condition": a["non_alc"] > 0 and a["drinks"] == a["non_alc"] and a["food"] == 0,
-            "target_category": "Sweets",
-            "discount_percent": 25,
-            "message": "🍫 Something sweet? Add any dessert for **25% off** with your drink!",
-            "suggested_items": ["Brownie", "Cookie (2-pack)", "Affogato"],
-        },
-        # Trigger 5: Snacks Only, No Shareable (group indicator)
-        {
-            "id": "UPSELL_GROUP_FLATBREAD",
-            "condition": a["subtotal"] >= 15 and a["snacks"] > 0 and a["shareables"] == 0 and a["total_items"] >= 3,
-            "target_category": "Shareables",
-            "discount_percent": 20,
-            "message": "🍕 Feeding the table? Add a **flatbread** for **20% off**!",
-            "suggested_items": ["Flatbread — Margherita", "Flatbread — White"],
-        },
-        # Trigger 7: Large Cart, No Sweet
-        {
-            "id": "UPSELL_LARGE_SWEET",
-            "condition": a["total_items"] >= 4 and a["sweets"] == 0,
-            "target_category": "Sweets",
-            "discount_percent": 25,
-            "message": "🍪 Finish strong — add any dessert for **25% off** with your big order!",
-            "suggested_items": ["Affogato", "Brownie", "Chocolate Bark"],
-        },
-        # Trigger 1: Drinks Only, No Food (broader — catches remaining drink-only carts)
-        {
-            "id": "UPSELL_DRINKS_POPCORN",
-            "condition": a["drinks"] >= 1 and a["food"] == 0,
-            "target_category": "Popcorn",
-            "discount_percent": 30,
-            "message": "🍿 Add any popcorn for **30% off** — perfect with your drink!",
-            "suggested_items": ["Classic Butter Popcorn", "Truffle + Parmesan Popcorn", "Popcorn Flight"],
-        },
-        # Trigger 6: Single Item Cart (Solo Customer) — broadest, lowest priority
-        {
-            "id": "UPSELL_SOLO",
-            "condition": a["total_items"] == 1 and a["subtotal"] < 12,
-            "target_category": "Popcorn",
-            "discount_percent": 40,
-            "message": "🍿 Solo starter deal — add any popcorn for **40% off**!",
-            "suggested_items": ["Classic Butter Popcorn", "Spicy Chile-Lime Popcorn"],
-        },
-    ]
+    for rule in rules:
+        # Parse category lists
+        requires_raw = rule.get("requires_categories", "") or ""
+        excludes_raw = rule.get("excludes_categories", "") or ""
+        requires_cats = {c.strip().lower() for c in requires_raw.split(",") if c.strip()}
+        excludes_cats = {c.strip().lower() for c in excludes_raw.split(",") if c.strip()}
 
-    for trigger in triggers:
-        if trigger["condition"]:
-            return trigger
+        min_req_count = int(rule.get("min_requires_count", 1) or 1)
+        min_items = int(rule.get("min_items", 0) or 0)
+        max_items = int(rule.get("max_items", 0) or 0)
+        min_subtotal = float(rule.get("min_subtotal", 0) or 0)
+        max_subtotal = float(rule.get("max_subtotal", 0) or 0)
+
+        # Check requires: count items in required categories
+        if requires_cats:
+            req_count = sum(
+                int(item.get("quantity", 1) or 1)
+                for item in cart
+                if item.get("category", "").lower() in requires_cats
+            )
+            if req_count < min_req_count:
+                continue
+
+        # Check excludes: none of these categories should be in cart
+        if excludes_cats:
+            has_excluded = any(
+                item.get("category", "").lower() in excludes_cats
+                for item in cart
+            )
+            if has_excluded:
+                continue
+
+        # Check item count constraints
+        if min_items > 0 and a["total_items"] < min_items:
+            continue
+        if max_items > 0 and a["total_items"] > max_items:
+            continue
+
+        # Check subtotal constraints
+        if min_subtotal > 0 and a["subtotal"] < min_subtotal:
+            continue
+        if max_subtotal > 0 and a["subtotal"] > max_subtotal:
+            continue
+
+        # All conditions met — build the result
+        suggested_raw = rule.get("suggested_items", "") or ""
+        suggested_list = [s.strip() for s in suggested_raw.split(",") if s.strip()]
+
+        return {
+            "id": rule["upsell_id"],
+            "target_category": rule.get("target_category", ""),
+            "discount_percent": float(rule.get("discount_percent", 0) or 0),
+            "message": rule.get("message", ""),
+            "suggested_items": suggested_list,
+        }
 
     return None
 

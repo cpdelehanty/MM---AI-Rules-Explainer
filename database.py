@@ -179,6 +179,39 @@ def init_database():
         )
     """)
 
+    # Cart upsell rules (synced from Google Sheets)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cart_upsells (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            upsell_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            requires_categories TEXT,
+            excludes_categories TEXT,
+            min_requires_count INTEGER DEFAULT 1,
+            min_items INTEGER DEFAULT 0,
+            max_items INTEGER DEFAULT 0,
+            min_subtotal REAL DEFAULT 0,
+            max_subtotal REAL DEFAULT 0,
+            target_category TEXT NOT NULL,
+            discount_percent REAL NOT NULL,
+            message TEXT NOT NULL,
+            suggested_items TEXT,
+            priority INTEGER DEFAULT 10,
+            active INTEGER DEFAULT 1,
+            last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Cart upsells sync log
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cart_upsells_sync_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            rules_synced INTEGER,
+            status TEXT
+        )
+    """)
+
     # Security log (anomaly tracking for prompt injection attempts)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS security_log (
@@ -498,6 +531,32 @@ def get_auto_deal_rules():
     rules = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return rules
+
+
+def get_cart_upsell_rules():
+    """Get all active cart upsell rules, ordered by priority"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM cart_upsells WHERE active = 1 ORDER BY priority ASC")
+    rules = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rules
+
+
+def get_last_cart_upsells_sync():
+    """Get timestamp of last successful cart upsells sync (today only)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT synced_at FROM cart_upsells_sync_log
+        WHERE status = 'success'
+          AND date(synced_at) = date('now')
+        ORDER BY synced_at DESC LIMIT 1
+    """)
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
 
 
 def get_last_auto_rules_sync():

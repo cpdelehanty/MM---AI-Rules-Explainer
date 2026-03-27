@@ -23,6 +23,7 @@ from sync_deals import (
     format_deals_for_prompt, format_events_for_prompt,
     transmit_order_to_sheet, evaluate_deals, evaluate_auto_deals,
     evaluate_cart_upsells,
+    should_sync_cart_upsells, sync_cart_upsells_from_sheets,
 )
 from user_store import (
     normalize_phone, validate_phone, get_customer, create_customer,
@@ -286,6 +287,9 @@ def load_deals_and_events():
     if should_sync_auto_rules():
         result = sync_auto_rules_from_sheets()
         print(f"[AUTO RULES SYNC] {result}")
+    if should_sync_cart_upsells():
+        result = sync_cart_upsells_from_sheets()
+        print(f"[CART UPSELLS SYNC] {result}")
     return True
 
 @st.cache_resource(ttl=86400)
