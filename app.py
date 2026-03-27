@@ -1040,6 +1040,8 @@ def open_order_dialog():
         st.session_state.dialog_view = "menu"  # "menu" | "detail" | "confirm"
     if "detail_item" not in st.session_state:
         st.session_state.detail_item = None
+    if "last_menu_group" not in st.session_state:
+        st.session_state.last_menu_group = None
 
     # Load menu items grouped by category
     all_items = get_menu_items(available_only=True)
@@ -1063,6 +1065,13 @@ def open_order_dialog():
         display_groups[group].sort(key=lambda x: x.get("category", ""))
 
     cat_names = list(display_groups.keys())
+
+    # Reorder tabs so the last viewed group is first
+    if st.session_state.last_menu_group and st.session_state.last_menu_group in cat_names:
+        last = st.session_state.last_menu_group
+        cat_names.remove(last)
+        cat_names.insert(0, last)
+
     tab_labels = [f"{CATEGORY_ICONS.get(cat, '📋')} {cat}" for cat in cat_names]
 
     # Calculate applied discount info for price display (shared across all views)
@@ -1463,6 +1472,7 @@ def open_order_dialog():
                 with col_add:
                     if st.button("➕", key=f"add_{item_id}", use_container_width=True):
                         st.session_state.detail_item = item_id
+                        st.session_state.last_menu_group = cat
                         st.session_state.dialog_view = "detail"
                         st.rerun(scope="fragment")
                 st.divider()
