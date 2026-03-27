@@ -49,6 +49,45 @@ PREFERENCE_KEYWORDS = [
     "in spanish", "in french", "en español", "en français",
 ]
 
+import random as _random
+
+LOADING_MESSAGES = [
+    "🎲 Rolling for initiative...",
+    "🃏 Drawing from the deck...",
+    "♟️ Planning the next move...",
+    "🧩 Assembling the pieces...",
+    "🎯 Lining up the perfect shot...",
+    "🏰 Building your strategy...",
+    "🗺️ Charting the course...",
+    "🎴 Shuffling the cards...",
+    "⚔️ Consulting the oracle...",
+    "🪄 Casting knowledge check...",
+    "🎪 Setting the board...",
+    "📜 Unrolling the scroll...",
+    "🧙 Summoning an answer...",
+    "🏆 Calculating victory points...",
+    "🎰 Spinning up the meeples...",
+    "🗝️ Unlocking the rulebook vault...",
+    "🎭 Reading the room...",
+    "🧊 Breaking the ice...",
+    "🍕 Grabbing a slice while we think...",
+    "🐉 Slaying the dragon of confusion...",
+    "🪵 Gathering resources...",
+    "🏗️ Placing a worker on it...",
+    "🚂 All aboard the answer train...",
+    "🌾 Trading sheep for wisdom...",
+    "🧠 Activating big brain mode...",
+    "🎲 Nat 20! Critical thinking...",
+    "🗡️ Rolling a persuasion check...",
+    "🏝️ Settling into your question...",
+    "🍀 Feeling lucky...",
+    "🔮 Consulting the game master...",
+]
+
+def get_loading_message():
+    """Return a random cute loading message"""
+    return _random.choice(LOADING_MESSAGES)
+
 def escape_dollars(text):
     """Escape $ signs to prevent Streamlit rendering them as LaTeX"""
     return text.replace("$", "\\$")
@@ -1824,7 +1863,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             # If cached response is None (generation failed), generate fresh
             if not response:
                 with st.chat_message("assistant"):
-                    with st.spinner("Thinking..."):
+                    with st.spinner(get_loading_message()):
                         response = generate_general_response(
                             prompt,
                             list(game_library.keys()),
@@ -1888,7 +1927,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 if has_question:
                     # Answer the question directly — skip the generic intro
                     with st.chat_message("assistant"):
-                        with st.spinner("Checking the rulebook..."):
+                        with st.spinner(get_loading_message()):
                             answer, pages, sources_used = answer_question(
                                 prompt,
                                 detected_game,
@@ -1931,7 +1970,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 else:
                     # Just selecting a game — show intro
                     with st.chat_message("assistant"):
-                        with st.spinner("Loading game info..."):
+                        with st.spinner(get_loading_message()):
                             intro_message = generate_game_intro(
                                 detected_game,
                                 voyage_client,
@@ -1945,7 +1984,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             elif detected_game and detected_game == st.session_state.current_game:
                 # Same game detected - just answer the question
                 with st.chat_message("assistant"):
-                    with st.spinner("Checking the rulebook..."):
+                    with st.spinner(get_loading_message()):
                         answer, pages, sources_used = answer_question(
                             prompt,
                             st.session_state.current_game,
@@ -2034,7 +2073,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
         else:
             # Game already selected and user isn't switching - answer about current game
             with st.chat_message("assistant"):
-                with st.spinner("Checking the rulebook..."):
+                with st.spinner(get_loading_message()):
                     answer, pages, sources_used = answer_question(
                         prompt,
                         st.session_state.current_game,
