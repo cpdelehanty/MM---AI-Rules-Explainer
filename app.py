@@ -301,17 +301,17 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Pin quick-action buttons just above the chat input bar
+# Custom CSS: pin quick-action buttons just above the chat input
 st.markdown("""
 <style>
-/* Make the quick-action button bar sticky above chat input */
-div[data-testid="stBottomBlockContainer"] > div:has(> div[data-testid="stHorizontalBlock"]) {
-    position: sticky;
-    bottom: 0;
-    background: var(--background-color, white);
-    padding-top: 0.5rem;
-    padding-bottom: 0.25rem;
-    z-index: 100;
+/* The chat input sits inside stBottom. We inject buttons before it.
+   Target the element with our marker class and pin it. */
+[data-testid="stBottom"] [data-testid="stBottomBlockContainer"] {
+    padding-top: 0.25rem !important;
+}
+/* Add padding so chat messages aren't hidden behind the button bar */
+section[data-testid="stChatMessageContainer"] {
+    padding-bottom: 50px !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1823,31 +1823,30 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 elif message.get("staff_requested") == True:
                     st.success("✅ Staff has been notified")
     
-    # Quick-action buttons (pinned above chat input via bottom container)
-    button_bar = st.container()
-    cols = button_bar.columns(4)
-    with cols[0]:
-        if st.button(f"🎮 {ui.get('browse_games', 'Browse games')}", use_container_width=True):
-            st.session_state.pending_quick_action = "What games do you have?"
-            st.rerun()
-    with cols[1]:
-        if st.button(f"📖 {ui.get('rules_help', 'Rules help')}", use_container_width=True):
-            st.session_state.pending_quick_action = "I need help with game rules"
-            st.rerun()
-    with cols[2]:
-        # Cart count badge
-        cart_count = sum(item.get("qty", 1) for item in st.session_state.cart) if st.session_state.cart else 0
-        order_label = ui.get("order", "Order")
-        if cart_count > 0:
-            order_label = f"{order_label} ({cart_count})"
-        if st.button(f"🛒 {order_label}", use_container_width=True):
-            open_order_dialog()
-    with cols[3]:
-        if st.button(f"🙋 {ui.get('get_staff', 'Get staff help')}", use_container_width=True):
-            st.session_state.pending_quick_action = "I need help from a staff member"
-            st.rerun()
+    # Quick-action buttons pinned in bottom bar, above chat input
+    with st._bottom:
+        cols = st.columns(4)
+        with cols[0]:
+            if st.button(f"🎮 {ui.get('browse_games', 'Browse games')}", use_container_width=True, key="btn_games"):
+                st.session_state.pending_quick_action = "What games do you have?"
+                st.rerun()
+        with cols[1]:
+            if st.button(f"📖 {ui.get('rules_help', 'Rules help')}", use_container_width=True, key="btn_rules"):
+                st.session_state.pending_quick_action = "I need help with game rules"
+                st.rerun()
+        with cols[2]:
+            cart_count = sum(item.get("qty", 1) for item in st.session_state.cart) if st.session_state.cart else 0
+            order_label = ui.get("order", "Order")
+            if cart_count > 0:
+                order_label = f"{order_label} ({cart_count})"
+            if st.button(f"🛒 {order_label}", use_container_width=True, key="btn_order"):
+                open_order_dialog()
+        with cols[3]:
+            if st.button(f"🙋 {ui.get('get_staff', 'Get staff help')}", use_container_width=True, key="btn_staff"):
+                st.session_state.pending_quick_action = "I need help from a staff member"
+                st.rerun()
 
-    # Always render chat input (pinned to bottom by Streamlit)
+    # Chat input (also in bottom bar, rendered after buttons)
     typed_input = st.chat_input(ui.get("chat_placeholder", "Ask about rules, the menu, or anything else..."))
 
     # Handle pending quick action from button press or language change
