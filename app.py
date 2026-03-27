@@ -1601,7 +1601,7 @@ def open_order_dialog():
                     st.rerun(scope="fragment")
 
         # Place order button (show discounted total if applicable)
-        display_total = cart_after_discount if cart_discount > 0 else cart_total
+        display_total = cart_after_discount if deal_discount > 0 else cart_total
         if st.button(f"🛒 {ui.get('place_order', 'Place Order')} — \\${display_total:.2f}", use_container_width=True, type="primary", key="place_order"):
             st.session_state.dialog_view = "confirm"
             st.rerun(scope="fragment")
