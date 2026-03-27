@@ -1119,9 +1119,15 @@ def open_order_dialog():
                 elif dtype == "flat":
                     discount += dval
             if discount > 0:
-                discount = min(discount, subtotal)  # Can't discount more than subtotal
-                st.markdown(f"🏷️ {ui.get('discount', 'Discount')}: -\\${discount:.2f}")
+                discount = min(discount, subtotal)
             st.divider()
+
+        # Calculate upsell savings
+        upsell_savings = sum(
+            (float(item.get("original_price", item["price"])) - item["price"]) * item.get("qty", 1)
+            for item in cart if item.get("upsell_id")
+        )
+        total_discounts = discount + upsell_savings
 
         # Tax and total
         NYC_SALES_TAX = 0.08875
@@ -1130,8 +1136,8 @@ def open_order_dialog():
         total_with_tax = discounted_subtotal + tax
 
         st.markdown(f"{ui.get('subtotal', 'Subtotal')}: \\${subtotal:.2f}")
-        if discount > 0:
-            st.markdown(f"{ui.get('discount', 'Discount')}: -\\${discount:.2f}")
+        if total_discounts > 0:
+            st.markdown(f":green[{ui.get('total_discounts', 'Total Discounts')}: -\\${total_discounts:.2f}]")
         st.markdown(f"{ui.get('tax', 'Tax')} (8.875%): \\${tax:.2f}")
         st.markdown(f"**{ui.get('total', 'Total')}: \\${total_with_tax:.2f}**")
 
@@ -1495,25 +1501,34 @@ def open_order_dialog():
 
         st.divider()
 
-        # Calculate discount from applied deals (upsell items excluded)
+        # Calculate deal discounts (upsell items excluded from deal math)
         non_upsell_total = sum(
             item["price"] * item.get("qty", 1)
             for item in st.session_state.cart if not item.get("upsell_id")
         )
-        cart_discount = 0
+        deal_discount = 0
         for deal in st.session_state.deals_applied:
             dtype = deal.get("discount_type", "")
             dval = float(deal.get("discount_value", 0) or 0)
             if dtype == "percent":
-                cart_discount += non_upsell_total * (dval / 100)
+                deal_discount += non_upsell_total * (dval / 100)
             elif dtype == "flat":
-                cart_discount += dval
-        cart_discount = min(cart_discount, cart_total)
-        cart_after_discount = cart_total - cart_discount
+                deal_discount += dval
+        deal_discount = min(deal_discount, cart_total)
+
+        # Calculate upsell savings (difference between original and discounted price)
+        upsell_savings = sum(
+            (float(item.get("original_price", item["price"])) - item["price"]) * item.get("qty", 1)
+            for item in st.session_state.cart if item.get("upsell_id")
+        )
+
+        total_discounts = deal_discount + upsell_savings
+        cart_after_discount = cart_total - deal_discount
 
         st.markdown(f"**{ui.get('subtotal', 'Subtotal')}: \\${cart_total:.2f}**")
-        if cart_discount > 0:
-            st.markdown(f":green[**{ui.get('discount', 'Discount')}: -\\${cart_discount:.2f}**]")
+        if total_discounts > 0:
+            st.markdown(f":green[**{ui.get('total_discounts', 'Total Discounts')}: -\\${total_discounts:.2f}**]")
+        if deal_discount > 0:
             st.markdown(f"**{ui.get('total', 'Total')}: \\${cart_after_discount:.2f}**")
 
         # Deals
