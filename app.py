@@ -1729,8 +1729,9 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 elif message.get("staff_requested") == True:
                     st.success("✅ Staff has been notified")
     
-    # Quick-action buttons (always visible above input)
-    cols = st.columns(4)
+    # Quick-action buttons (pinned above chat input)
+    button_bar = st.container()
+    cols = button_bar.columns(4)
     with cols[0]:
         if st.button(f"🎮 {ui.get('browse_games', 'Browse games')}", use_container_width=True):
             st.session_state.pending_quick_action = "What games do you have?"
@@ -1752,6 +1753,9 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             st.session_state.pending_quick_action = "I need help from a staff member"
             st.rerun()
 
+    # Always render chat input (pinned to bottom by Streamlit)
+    typed_input = st.chat_input(ui.get("chat_placeholder", "Ask about rules, the menu, or anything else..."))
+
     # Handle pending quick action from button press or language change
     prompt = None
     is_cached_response = False
@@ -1767,8 +1771,8 @@ Keep it to 1-2 sentences. Don't mention their phone number.
         if prompt in cached_responses and cached_responses[prompt]:
             is_cached_response = True
         hide_user_message = True
-    else:
-        prompt = st.chat_input(ui.get("chat_placeholder", "Ask about rules, the menu, or anything else..."))
+    elif typed_input:
+        prompt = typed_input
 
     if prompt:
         # Store the question for potential staff ping
