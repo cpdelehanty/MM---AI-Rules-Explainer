@@ -927,14 +927,21 @@ def translate_app_ui(language, _api_key):
 # --- Visual Ordering Dialog ---
 
 CATEGORY_ICONS = {
+    # Display group icons
+    "Drinks": "🍺",
+    "Snacks & Shareables": "🥨",
+    "Sweets": "🍪",
+    # Sub-category icons (fallback)
     "Beer": "🍺",
+    "Beer - Draft": "🍺",
+    "Beer - Canned": "🍺",
     "Wine": "🍷",
+    "Non-Alc": "☕",
     "Coffee & Hot": "☕",
     "Non-Alcoholic": "🥤",
     "Popcorn": "🍿",
     "Shareables": "🍴",
     "Snacks": "🥨",
-    "Sweets": "🍪",
 }
 
 DIETARY_BADGES = {
@@ -1009,15 +1016,15 @@ def open_order_dialog():
     # Build item lookup
     item_lookup = {item["item_id"]: item for item in all_items}
 
-    # Group by category
-    categories = {}
+    # Group by display_group (falls back to category if not set)
+    display_groups = {}
     for item in all_items:
-        cat = item.get("category", "Other")
-        if cat not in categories:
-            categories[cat] = []
-        categories[cat].append(item)
+        group = item.get("display_group") or item.get("category", "Other")
+        if group not in display_groups:
+            display_groups[group] = []
+        display_groups[group].append(item)
 
-    cat_names = list(categories.keys())
+    cat_names = list(display_groups.keys())
     tab_labels = [f"{CATEGORY_ICONS.get(cat, '📋')} {cat}" for cat in cat_names]
 
     # Calculate applied discount info for price display (shared across all views)
@@ -1341,7 +1348,7 @@ def open_order_dialog():
 
     for i, cat in enumerate(cat_names):
         with tabs[i]:
-            for item in categories[cat]:
+            for item in display_groups[cat]:
                 item_id = item["item_id"]
                 name = item["name"]
                 price_str = item.get("price", "$0")

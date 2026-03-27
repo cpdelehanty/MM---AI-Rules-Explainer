@@ -64,6 +64,7 @@ def init_database():
             dietary_tags TEXT,
             available INTEGER DEFAULT 1,
             notes TEXT,
+            display_group TEXT,
             last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)

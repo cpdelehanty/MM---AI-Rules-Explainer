@@ -67,9 +67,11 @@ def sync_menu_from_sheets():
             seen_ids.add(item_id)
             available = 1 if str(row.get("available", "yes")).strip().lower() in ("yes", "1", "true") else 0
 
+            display_group = str(row.get("display_group", "")).strip() or str(row.get("category", "")).strip()
+
             cursor.execute("""
-                INSERT INTO menu_items (item_id, category, name, description, price, dietary_tags, available, notes, last_synced)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO menu_items (item_id, category, name, description, price, dietary_tags, available, notes, display_group, last_synced)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(item_id) DO UPDATE SET
                     category = excluded.category,
                     name = excluded.name,
@@ -78,6 +80,7 @@ def sync_menu_from_sheets():
                     dietary_tags = excluded.dietary_tags,
                     available = excluded.available,
                     notes = excluded.notes,
+                    display_group = excluded.display_group,
                     last_synced = CURRENT_TIMESTAMP
             """, (
                 item_id,
@@ -88,6 +91,7 @@ def sync_menu_from_sheets():
                 str(row.get("dietary_tags", "")).strip(),
                 available,
                 str(row.get("notes", "")).strip(),
+                display_group,
             ))
             synced_count += 1
 
