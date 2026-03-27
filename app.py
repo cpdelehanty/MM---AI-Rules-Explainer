@@ -1034,7 +1034,7 @@ def open_order_dialog():
                             "original_price": mi_price,
                             "quantity": 1,
                             "qty": 1,
-                            "notes": f"Upsell: {discount_pct:.0f}% off",
+                            "notes": f"{discount_pct:.0f}% off deal applied",
                             "upsell_id": cart_upsell["id"],
                         })
                         st.rerun(scope="fragment")
