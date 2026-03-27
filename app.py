@@ -1217,7 +1217,9 @@ def open_order_dialog():
             cart_item = {
                 "item_id": detail_id,
                 "name": name,
+                "category": item.get("category", ""),
                 "price": price_val,
+                "quantity": qty,
                 "qty": qty,
             }
             if selected_option:

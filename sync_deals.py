@@ -679,7 +679,7 @@ def _analyze_cart(cart):
     for item in cart:
         cat = item.get("category", "").lower()
         price = float(item.get("price", 0) or 0)
-        qty = int(item.get("quantity", 1) or 1)
+        qty = int(item.get("quantity", None) or item.get("qty", 1) or 1)
 
         analysis["total_items"] += qty
         analysis["subtotal"] += price * qty
@@ -743,7 +743,7 @@ def evaluate_cart_upsells(cart):
         # Check requires: count items in required categories
         if requires_cats:
             req_count = sum(
-                int(item.get("quantity", 1) or 1)
+                int(item.get("quantity", None) or item.get("qty", 1) or 1)
                 for item in cart
                 if item.get("category", "").lower() in requires_cats
             )
