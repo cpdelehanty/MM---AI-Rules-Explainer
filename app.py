@@ -1088,7 +1088,7 @@ def open_order_dialog():
                 order_placed_text = ui.get("order_placed", "Order placed!")
                 order_summary = f"{order_placed_text} (#{order_id}) — " + ", ".join(
                     f"{item['name']} x{item['qty']}" for item in cart
-                ) + f" — {ui.get('total', 'Total')}: \\${total:.2f}"
+                ) + f" — {ui.get('total', 'Total')}: ${total:.2f}"
                 st.session_state.messages.append({"role": "assistant", "content": order_summary})
 
                 st.session_state.cart = []
