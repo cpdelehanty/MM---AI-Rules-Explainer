@@ -997,58 +997,43 @@ def open_order_dialog():
         st.caption(ui.get("added_to_tab",
             "This will be added to your tab, which includes your table time and any other orders from this visit."))
 
-        # --- Upsell prompts on confirmation screen ---
-        confirm_profile = None
-        if st.session_state.customer_phone and st.session_state.customer_phone != "ANON":
-            confirm_profile = get_customer(st.session_state.customer_phone)
-
-        _, near_miss_confirm = evaluate_deals(confirm_profile, discounted_subtotal)
-        auto_offers = evaluate_auto_deals(discounted_subtotal)
+        # --- Single best upsell on confirmation screen ---
         cart_upsell = evaluate_cart_upsells(st.session_state.cart)
 
-        has_upsell = near_miss_confirm or auto_offers or cart_upsell
-        if has_upsell:
+        if cart_upsell:
             st.divider()
             st.markdown(f"**💡 {ui.get('before_you_order', 'Before you order...')}**")
+            st.info(escape_dollars(cart_upsell["message"]))
 
-            # Cart-based contextual upsell (highest value — show first)
-            if cart_upsell:
-                st.info(escape_dollars(cart_upsell["message"]))
-                # Show suggested items with quick-add buttons
-                suggested = cart_upsell.get("suggested_items", [])
-                discount_pct = cart_upsell.get("discount_percent", 0)
-                target_cat = cart_upsell.get("target_category", "")
-                menu_items = get_menu_items(category=target_cat, available_only=True)
+            # Show suggested items with quick-add buttons
+            suggested = cart_upsell.get("suggested_items", [])
+            discount_pct = cart_upsell.get("discount_percent", 0)
+            target_cat = cart_upsell.get("target_category", "")
+            menu_items = get_menu_items(category=target_cat, available_only=True)
 
-                for mi in menu_items:
-                    mi_name = mi["name"]
-                    if mi_name in suggested:
-                        mi_price = float(mi.get("price", 0) or 0)
-                        discounted = mi_price * (1 - discount_pct / 100)
-                        price_display = f"~~\\${mi_price:.2f}~~ :green[**\\${discounted:.2f}**]"
-                        if st.button(
-                            f"➕ {mi_name} — {price_display}",
-                            key=f"upsell_add_{mi['item_id']}",
-                            use_container_width=True,
-                        ):
-                            st.session_state.cart.append({
-                                "item_id": mi["item_id"],
-                                "name": mi_name,
-                                "category": mi.get("category", ""),
-                                "price": discounted,
-                                "original_price": mi_price,
-                                "quantity": 1,
-                                "notes": f"Upsell: {discount_pct}% off",
-                                "upsell_id": cart_upsell["id"],
-                            })
-                            st.rerun(scope="fragment")
-
-            for deal in near_miss_confirm:
-                gap = deal.get("gap", "")
-                st.info(f"🏷️ {gap} → {escape_dollars(deal['display_text'])}")
-
-            for offer in auto_offers:
-                st.info(f"💰 {escape_dollars(offer['description'])}")
+            for mi in menu_items:
+                mi_name = mi["name"]
+                if mi_name in suggested:
+                    mi_price = float(str(mi.get("price", "0")).replace("$", "") or 0)
+                    discounted = mi_price * (1 - discount_pct / 100)
+                    price_display = f"~~\\${mi_price:.2f}~~ :green[**\\${discounted:.2f}**]"
+                    if st.button(
+                        f"➕ {mi_name} — {price_display}",
+                        key=f"upsell_add_{mi['item_id']}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.cart.append({
+                            "item_id": mi["item_id"],
+                            "name": mi_name,
+                            "category": mi.get("category", ""),
+                            "price": discounted,
+                            "original_price": mi_price,
+                            "quantity": 1,
+                            "qty": 1,
+                            "notes": f"Upsell: {discount_pct:.0f}% off",
+                            "upsell_id": cart_upsell["id"],
+                        })
+                        st.rerun(scope="fragment")
 
             if st.button(f"⬅️ {ui.get('add_more', 'Add more items')}", key="upsell_back", use_container_width=True):
                 st.session_state.dialog_view = "menu"
@@ -1260,45 +1245,57 @@ def open_order_dialog():
     cart_subtotal_now = get_cart_subtotal(st.session_state.cart)
     eligible_deals_top, _ = evaluate_deals(customer_profile_for_deals, cart_subtotal_now)
 
+    # Show single best eligible deal (no stacking — best deal wins)
     if eligible_deals_top:
-        st.markdown(f"**🏷️ {ui.get('your_deals', 'Your Deals')}**")
-        for deal in eligible_deals_top:
-            already_applied = any(d["deal_id"] == deal["deal_id"] for d in st.session_state.deals_applied)
-            if already_applied:
-                st.success(f"✅ {escape_dollars(deal['display_text'])}")
-            else:
-                col_deal, col_apply = st.columns([4, 1])
-                with col_deal:
-                    st.success(escape_dollars(deal["display_text"]))
-                with col_apply:
-                    if st.button(ui.get("apply", "Apply"), key=f"top_deal_{deal['deal_id']}", use_container_width=True):
-                        st.session_state.deals_applied.append(deal)
-                        # Auto-add free item to cart
-                        if deal.get("discount_type") == "free_item":
-                            free_name = deal.get("free_item_description", "")
-                            if free_name:
-                                # Find matching menu item
-                                all_items = get_menu_items(available_only=True)
-                                for mi in all_items:
-                                    if mi["name"].lower() == free_name.lower():
-                                        # Check not already in cart
-                                        already_in_cart = any(
-                                            c.get("item_id") == mi["item_id"] and c.get("deal_id") == deal["deal_id"]
-                                            for c in st.session_state.cart
-                                        )
-                                        if not already_in_cart:
-                                            st.session_state.cart.append({
-                                                "item_id": mi["item_id"],
-                                                "name": mi["name"],
-                                                "category": mi.get("category", ""),
-                                                "price": 0,
-                                                "original_price": float(str(mi.get("price", "0")).replace("$", "") or 0),
-                                                "quantity": 1,
-                                                "notes": f"FREE — {deal['display_text']}",
-                                                "deal_id": deal["deal_id"],
-                                            })
-                                        break
-                        st.rerun(scope="fragment")
+        # Pick the best deal: free_item first, then highest percent, then highest flat
+        def _deal_value(d):
+            dtype = d.get("discount_type", "")
+            dval = float(d.get("discount_value", 0) or 0)
+            if dtype == "free_item":
+                return 1000  # always best
+            elif dtype == "percent":
+                return dval
+            elif dtype == "flat":
+                return dval
+            return 0
+        best_deal = max(eligible_deals_top, key=_deal_value)
+        already_applied = any(d["deal_id"] == best_deal["deal_id"] for d in st.session_state.deals_applied)
+
+        st.markdown(f"**🏷️ {ui.get('your_deal', 'Your Deal')}**")
+        if already_applied:
+            st.success(f"✅ {escape_dollars(best_deal['display_text'])}")
+        else:
+            col_deal, col_apply = st.columns([4, 1])
+            with col_deal:
+                st.success(escape_dollars(best_deal["display_text"]))
+            with col_apply:
+                if st.button(ui.get("apply", "Apply"), key=f"top_deal_{best_deal['deal_id']}", use_container_width=True):
+                    st.session_state.deals_applied.append(best_deal)
+                    # Auto-add free item to cart
+                    if best_deal.get("discount_type") == "free_item":
+                        free_name = best_deal.get("free_item_description", "")
+                        if free_name:
+                            all_items = get_menu_items(available_only=True)
+                            for mi in all_items:
+                                if mi["name"].lower() == free_name.lower():
+                                    already_in_cart = any(
+                                        c.get("item_id") == mi["item_id"] and c.get("deal_id") == best_deal["deal_id"]
+                                        for c in st.session_state.cart
+                                    )
+                                    if not already_in_cart:
+                                        st.session_state.cart.append({
+                                            "item_id": mi["item_id"],
+                                            "name": mi["name"],
+                                            "category": mi.get("category", ""),
+                                            "price": 0,
+                                            "original_price": float(str(mi.get("price", "0")).replace("$", "") or 0),
+                                            "quantity": 1,
+                                            "qty": 1,
+                                            "notes": f"FREE — {best_deal['display_text']}",
+                                            "deal_id": best_deal["deal_id"],
+                                        })
+                                    break
+                    st.rerun(scope="fragment")
         st.divider()
 
     tabs = st.tabs(tab_labels)
@@ -1407,47 +1404,46 @@ def open_order_dialog():
             customer_profile_for_deals = get_customer(st.session_state.customer_phone)
         eligible_deals, near_miss_deals = evaluate_deals(customer_profile_for_deals, cart_total)
 
+        # Show single best deal in cart view (same logic as top)
         if eligible_deals:
-            st.markdown(f"**🏷️ {ui.get('deals_for_you', 'Deals for you')}**")
-            for deal in eligible_deals:
-                already_applied = any(d["deal_id"] == deal["deal_id"] for d in st.session_state.deals_applied)
-                col_deal, col_apply = st.columns([4, 1])
-                with col_deal:
-                    st.success(escape_dollars(deal["display_text"]))
-                with col_apply:
-                    if already_applied:
-                        st.markdown("✅")
-                    elif st.button(ui.get("apply", "Apply"), key=f"deal_{deal['deal_id']}", use_container_width=True):
-                        st.session_state.deals_applied.append(deal)
-                        # Auto-add free item to cart
-                        if deal.get("discount_type") == "free_item":
-                            free_name = deal.get("free_item_description", "")
-                            if free_name:
-                                all_items = get_menu_items(available_only=True)
-                                for mi in all_items:
-                                    if mi["name"].lower() == free_name.lower():
-                                        already_in_cart = any(
-                                            c.get("item_id") == mi["item_id"] and c.get("deal_id") == deal["deal_id"]
-                                            for c in st.session_state.cart
-                                        )
-                                        if not already_in_cart:
-                                            st.session_state.cart.append({
-                                                "item_id": mi["item_id"],
-                                                "name": mi["name"],
-                                                "category": mi.get("category", ""),
-                                                "price": 0,
-                                                "original_price": float(str(mi.get("price", "0")).replace("$", "") or 0),
-                                                "quantity": 1,
-                                                "notes": f"FREE — {deal['display_text']}",
-                                                "deal_id": deal["deal_id"],
-                                            })
-                                        break
-                        st.rerun(scope="fragment")
-
-        if near_miss_deals:
-            for deal in near_miss_deals:
-                gap = deal.get("gap", "")
-                st.info(f"{ui.get('almost_there', 'Almost there')}: {gap} — {escape_dollars(deal['display_text'])}")
+            best_cart_deal = max(eligible_deals, key=lambda d: (
+                1000 if d.get("discount_type") == "free_item"
+                else float(d.get("discount_value", 0) or 0)
+            ))
+            already_applied = any(d["deal_id"] == best_cart_deal["deal_id"] for d in st.session_state.deals_applied)
+            st.markdown(f"**🏷️ {ui.get('your_deal', 'Your Deal')}**")
+            col_deal, col_apply = st.columns([4, 1])
+            with col_deal:
+                st.success(escape_dollars(best_cart_deal["display_text"]))
+            with col_apply:
+                if already_applied:
+                    st.markdown("✅")
+                elif st.button(ui.get("apply", "Apply"), key=f"deal_{best_cart_deal['deal_id']}", use_container_width=True):
+                    st.session_state.deals_applied.append(best_cart_deal)
+                    if best_cart_deal.get("discount_type") == "free_item":
+                        free_name = best_cart_deal.get("free_item_description", "")
+                        if free_name:
+                            all_items = get_menu_items(available_only=True)
+                            for mi in all_items:
+                                if mi["name"].lower() == free_name.lower():
+                                    already_in_cart = any(
+                                        c.get("item_id") == mi["item_id"] and c.get("deal_id") == best_cart_deal["deal_id"]
+                                        for c in st.session_state.cart
+                                    )
+                                    if not already_in_cart:
+                                        st.session_state.cart.append({
+                                            "item_id": mi["item_id"],
+                                            "name": mi["name"],
+                                            "category": mi.get("category", ""),
+                                            "price": 0,
+                                            "original_price": float(str(mi.get("price", "0")).replace("$", "") or 0),
+                                            "quantity": 1,
+                                            "qty": 1,
+                                            "notes": f"FREE — {best_cart_deal['display_text']}",
+                                            "deal_id": best_cart_deal["deal_id"],
+                                        })
+                                    break
+                    st.rerun(scope="fragment")
 
         # Place order button
         if st.button(f"🛒 {ui.get('place_order', 'Place Order')} — \\${cart_total:.2f}", use_container_width=True, type="primary", key="place_order"):
