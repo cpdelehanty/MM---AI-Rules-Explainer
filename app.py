@@ -1024,7 +1024,7 @@ def open_order_dialog():
 
             for mi in menu_items:
                 mi_name = mi["name"]
-                if mi_name in suggested:
+                if not suggested or mi_name in suggested:
                     mi_price = float(str(mi.get("price", "0")).replace("$", "") or 0)
                     discounted = mi_price * (1 - discount_pct / 100)
                     price_display = f"~~\\${mi_price:.2f}~~ :green[**\\${discounted:.2f}**]"
