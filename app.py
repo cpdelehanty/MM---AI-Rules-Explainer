@@ -1024,6 +1024,10 @@ def open_order_dialog():
             display_groups[group] = []
         display_groups[group].append(item)
 
+    # Sort items within each group by category for sub-headers
+    for group in display_groups:
+        display_groups[group].sort(key=lambda x: x.get("category", ""))
+
     cat_names = list(display_groups.keys())
     tab_labels = [f"{CATEGORY_ICONS.get(cat, '📋')} {cat}" for cat in cat_names]
 
@@ -1348,7 +1352,21 @@ def open_order_dialog():
 
     for i, cat in enumerate(cat_names):
         with tabs[i]:
+            # Sub-group items by category within this display group
+            sub_groups = {}
             for item in display_groups[cat]:
+                sub = item.get("category", "Other")
+                if sub not in sub_groups:
+                    sub_groups[sub] = []
+                sub_groups[sub].append(item)
+
+            current_sub = None
+            for item in display_groups[cat]:
+                sub = item.get("category", "Other")
+                if sub != current_sub:
+                    current_sub = sub
+                    icon = CATEGORY_ICONS.get(sub, "📋")
+                    st.markdown(f"**{icon} {sub}**")
                 item_id = item["item_id"]
                 name = item["name"]
                 price_str = item.get("price", "$0")
