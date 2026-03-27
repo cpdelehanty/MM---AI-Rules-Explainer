@@ -1271,6 +1271,31 @@ def open_order_dialog():
                 with col_apply:
                     if st.button(ui.get("apply", "Apply"), key=f"top_deal_{deal['deal_id']}", use_container_width=True):
                         st.session_state.deals_applied.append(deal)
+                        # Auto-add free item to cart
+                        if deal.get("discount_type") == "free_item":
+                            free_name = deal.get("free_item_description", "")
+                            if free_name:
+                                # Find matching menu item
+                                all_items = get_menu_items(available_only=True)
+                                for mi in all_items:
+                                    if mi["name"].lower() == free_name.lower():
+                                        # Check not already in cart
+                                        already_in_cart = any(
+                                            c.get("item_id") == mi["item_id"] and c.get("deal_id") == deal["deal_id"]
+                                            for c in st.session_state.cart
+                                        )
+                                        if not already_in_cart:
+                                            st.session_state.cart.append({
+                                                "item_id": mi["item_id"],
+                                                "name": mi["name"],
+                                                "category": mi.get("category", ""),
+                                                "price": 0,
+                                                "original_price": float(str(mi.get("price", "0")).replace("$", "") or 0),
+                                                "quantity": 1,
+                                                "notes": f"FREE — {deal['display_text']}",
+                                                "deal_id": deal["deal_id"],
+                                            })
+                                        break
                         st.rerun(scope="fragment")
         st.divider()
 
@@ -1392,6 +1417,29 @@ def open_order_dialog():
                         st.markdown("✅")
                     elif st.button(ui.get("apply", "Apply"), key=f"deal_{deal['deal_id']}", use_container_width=True):
                         st.session_state.deals_applied.append(deal)
+                        # Auto-add free item to cart
+                        if deal.get("discount_type") == "free_item":
+                            free_name = deal.get("free_item_description", "")
+                            if free_name:
+                                all_items = get_menu_items(available_only=True)
+                                for mi in all_items:
+                                    if mi["name"].lower() == free_name.lower():
+                                        already_in_cart = any(
+                                            c.get("item_id") == mi["item_id"] and c.get("deal_id") == deal["deal_id"]
+                                            for c in st.session_state.cart
+                                        )
+                                        if not already_in_cart:
+                                            st.session_state.cart.append({
+                                                "item_id": mi["item_id"],
+                                                "name": mi["name"],
+                                                "category": mi.get("category", ""),
+                                                "price": 0,
+                                                "original_price": float(str(mi.get("price", "0")).replace("$", "") or 0),
+                                                "quantity": 1,
+                                                "notes": f"FREE — {deal['display_text']}",
+                                                "deal_id": deal["deal_id"],
+                                            })
+                                        break
                         st.rerun(scope="fragment")
 
         if near_miss_deals:
