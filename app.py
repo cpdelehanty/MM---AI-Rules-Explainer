@@ -404,18 +404,25 @@ User: "Can I get a coffee?" → NONE
 
 Game title:"""
 
-    response = anthropic_client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=50,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    
-    detected = response.content[0].text.strip()
-    
-    # Validate it's in our list
-    if detected in available_games:
-        return detected
-    return None
+    if not prompt or not prompt.strip():
+        return None
+
+    try:
+        response = anthropic_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=50,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        detected = response.content[0].text.strip()
+
+        # Validate it's in our list
+        if detected in available_games:
+            return detected
+        return None
+    except Exception as e:
+        print(f"[DETECT GAME] Error: {e}")
+        return None
 
 # Vector search
 def cosine_similarity(vec1, vec2):
