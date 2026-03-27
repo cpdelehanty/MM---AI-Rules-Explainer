@@ -1419,9 +1419,11 @@ def open_order_dialog():
             for item in display_groups[cat]:
                 sub = item.get("category", "Other")
                 if sub != current_sub:
+                    if current_sub is not None:
+                        st.divider()
                     current_sub = sub
                     icon = CATEGORY_ICONS.get(sub, "📋")
-                    st.markdown(f"**{icon} {sub}**")
+                    st.markdown(f"### {icon} {sub}")
                 item_id = item["item_id"]
                 name = item["name"]
                 price_str = item.get("price", "$0")
