@@ -267,30 +267,39 @@ QUICK_ACTIONS = {
     "I need help from a staff member": "staff_help",
 }
 
-# Load menu (syncs from Google Sheets once per day)
-@st.cache_data(ttl=86400)
+# Load menu (syncs from Google Sheets on startup)
+@st.cache_resource
 def load_menu():
-    """Load menu, syncing from Google Sheets if needed"""
-    if should_sync():
-        sync_menu_from_sheets()
+    """Load menu, syncing from Google Sheets on cold start"""
+    sync_menu_from_sheets()
     return format_menu_for_prompt()
 
-@st.cache_data(ttl=86400)
+@st.cache_resource
 def load_deals_and_events():
-    """Sync deals, events, and auto-deal rules from Google Sheets if needed (daily)"""
-    if should_sync_deals():
-        result = sync_deals_from_sheets()
-        print(f"[DEALS SYNC] {result}")
-    if should_sync_events():
-        result = sync_events_from_sheets()
-        print(f"[EVENTS SYNC] {result}")
-    if should_sync_auto_rules():
-        result = sync_auto_rules_from_sheets()
-        print(f"[AUTO RULES SYNC] {result}")
-    if should_sync_cart_upsells():
-        result = sync_cart_upsells_from_sheets()
-        print(f"[CART UPSELLS SYNC] {result}")
+    """Sync deals, events, and auto-deal rules from Google Sheets on cold start"""
+    result = sync_deals_from_sheets()
+    print(f"[DEALS SYNC] {result}")
+    result = sync_events_from_sheets()
+    print(f"[EVENTS SYNC] {result}")
+    result = sync_auto_rules_from_sheets()
+    print(f"[AUTO RULES SYNC] {result}")
+    result = sync_cart_upsells_from_sheets()
+    print(f"[CART UPSELLS SYNC] {result}")
     return True
+
+def force_sync_all():
+    """Force re-sync everything from Google Sheets, clearing caches"""
+    load_menu.clear()
+    load_deals_and_events.clear()
+    sync_menu_from_sheets()
+    sync_deals_from_sheets()
+    sync_events_from_sheets()
+    sync_auto_rules_from_sheets()
+    sync_cart_upsells_from_sheets()
+    # Clear cached responses too
+    if hasattr(pregenerate_quick_responses, 'clear'):
+        pregenerate_quick_responses.clear()
+    print("[FORCE SYNC] All data re-synced from Google Sheets")
 
 @st.cache_resource(ttl=86400)
 def pregenerate_quick_responses(_anthropic_client, game_list_str, menu_context):
@@ -1557,6 +1566,14 @@ def main():
             st.session_state.customer_profile["language_preference"] = selected_lang
         st.session_state.pending_language_cache = selected_lang
         st.session_state.pending_lang_greeting = f"Greet me and introduce yourself entirely in {selected_lang}. Do NOT include any English translations or parenthetical English text."
+        st.rerun()
+
+    # Force sync via URL param: ?sync=meeple
+    if st.query_params.get("sync") == "meeple":
+        with st.spinner("🔄 Force-syncing all data from Google Sheets..."):
+            force_sync_all()
+        st.success("✅ All data re-synced! Reloading...")
+        st.query_params.clear()
         st.rerun()
 
     # Initialize
