@@ -1993,21 +1993,24 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             response = cached_responses[prompt]
 
         if is_cached_response:
-            # If cached response is None (generation failed), generate fresh
+            # If cached response is None (generation failed), generate fresh (streamed)
             if not response:
                 with st.chat_message("assistant"):
-                    with st.status(get_loading_message(), expanded=True, state="running"):
-                        response = generate_general_response(
-                            prompt,
-                            list(game_library.keys()),
-                            anthropic_client,
-                            menu_context,
-                            customer_context,
-                            language=current_lang,
-                            deals_context=deals_context,
-                            events_context=events_context,
-                            cart_context=cart_context,
-                        )
+                    api_kwargs = generate_general_response(
+                        prompt,
+                        list(game_library.keys()),
+                        anthropic_client,
+                        menu_context,
+                        customer_context,
+                        language=current_lang,
+                        deals_context=deals_context,
+                        events_context=events_context,
+                        cart_context=cart_context,
+                        stream=True,
+                    )
+                    response = st.write_stream(
+                        anthropic_stream_with_retry(anthropic_client, **api_kwargs)
+                    )
             if response:
                 # Process order tags (server-side validation)
                 response, order_placed = process_order_tags(
@@ -2023,8 +2026,18 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                         question="Customer ready to order food/drinks",
                         reason="food_order"
                     )
-                with st.chat_message("assistant"):
-                    st.markdown(escape_dollars(response))
+                # Simulate streaming for cached responses
+                if is_cached_response:
+                    def _stream_cached(text, chunk_size=8):
+                        """Yield text in small chunks to simulate streaming."""
+                        for i in range(0, len(text), chunk_size):
+                            yield text[i:i + chunk_size]
+                            _time.sleep(0.01)
+                    with st.chat_message("assistant"):
+                        st.write_stream(_stream_cached(escape_dollars(response)))
+                else:
+                    with st.chat_message("assistant"):
+                        st.markdown(escape_dollars(response))
                 st.session_state.messages.append({"role": "assistant", "content": response})
                 if order_placed:
                     st.session_state.cart = []
