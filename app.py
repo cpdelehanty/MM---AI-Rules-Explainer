@@ -966,7 +966,11 @@ def open_order_dialog():
             st.markdown(item_line)
         st.divider()
 
-        # Deal discounts
+        # Deal discounts (upsell items excluded from order-level deals)
+        non_upsell_subtotal = sum(
+            item["price"] * item.get("qty", 1)
+            for item in cart if not item.get("upsell_id")
+        )
         discount = 0
         if st.session_state.deals_applied:
             for deal in st.session_state.deals_applied:
@@ -974,7 +978,7 @@ def open_order_dialog():
                 dtype = deal.get("discount_type", "")
                 dval = float(deal.get("discount_value", 0) or 0)
                 if dtype == "percent":
-                    discount += subtotal * (dval / 100)
+                    discount += non_upsell_subtotal * (dval / 100)
                 elif dtype == "flat":
                     discount += dval
             if discount > 0:
@@ -1049,13 +1053,17 @@ def open_order_dialog():
                 st.warning(ui.get("cart_empty_error", "Your cart is empty."))
             elif st.button(f"✅ {ui.get('confirm_order_btn', 'Confirm Order')}", use_container_width=True, type="primary", key="confirm_place"):
                 subtotal = get_cart_subtotal(cart)
-                # Recalculate discount server-side
+                # Recalculate discount server-side (upsell items excluded)
+                non_upsell_sub = sum(
+                    item["price"] * item.get("qty", 1)
+                    for item in cart if not item.get("upsell_id")
+                )
                 discount = 0
                 for deal in st.session_state.deals_applied:
                     dtype = deal.get("discount_type", "")
                     dval = float(deal.get("discount_value", 0) or 0)
                     if dtype == "percent":
-                        discount += subtotal * (dval / 100)
+                        discount += non_upsell_sub * (dval / 100)
                     elif dtype == "flat":
                         discount += dval
                 discount = min(discount, subtotal)
@@ -1336,13 +1344,17 @@ def open_order_dialog():
 
         st.divider()
 
-        # Calculate discount from applied deals
+        # Calculate discount from applied deals (upsell items excluded)
+        non_upsell_total = sum(
+            item["price"] * item.get("qty", 1)
+            for item in st.session_state.cart if not item.get("upsell_id")
+        )
         cart_discount = 0
         for deal in st.session_state.deals_applied:
             dtype = deal.get("discount_type", "")
             dval = float(deal.get("discount_value", 0) or 0)
             if dtype == "percent":
-                cart_discount += cart_total * (dval / 100)
+                cart_discount += non_upsell_total * (dval / 100)
             elif dtype == "flat":
                 cart_discount += dval
         cart_discount = min(cart_discount, cart_total)
