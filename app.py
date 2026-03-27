@@ -716,7 +716,7 @@ Your response:"""
 PHONE_GATE_TEXT = """
 We don't store any personal information beyond your phone number, and use this data \
 only to personalize and optimize your experience: we'll recommend games tailored to you, \
-remember dietary preferences, and (once a month max) we'll text you about events that you \
+remember language preferences, and (once a month max) we'll text you about events that you \
 might be interested in based on your history.
 
 We'll also use this data in aggregate to build a better menu and games library. \
@@ -794,7 +794,7 @@ def translate_login_text(language, _api_key):
             max_tokens=1000,
             messages=[{"role": "user", "content": f"""Translate this paragraph into {language}. Keep the markdown formatting (* for italic, ** for bold). Output ONLY the translated text, nothing else.
 
-We don't store any personal information beyond your phone number, and use this data only to personalize and optimize your experience: we'll recommend games tailored to you, remember dietary preferences, and (once a month max) we'll text you about events that you might be interested in based on your history.
+We don't store any personal information beyond your phone number, and use this data only to personalize and optimize your experience: we'll recommend games tailored to you, remember language preferences, and (once a month max) we'll text you about events that you might be interested in based on your history.
 
 We'll also use this data in aggregate to build a better menu and games library. **Returning users get discounts and perks** for allowing us to use your data to make The Merry Meeple the best game cafe on earth.
 
