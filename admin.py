@@ -275,6 +275,12 @@ def get_daily_stats():
     stats["pending_orders"] = row["cnt"]
 
     row = conn.execute("""
+        SELECT COUNT(*) as cnt FROM order_queue
+        WHERE date(created_at) = date('now') AND status IN ('pending', 'accepted')
+    """).fetchone()
+    stats["live_orders"] = row["cnt"]
+
+    row = conn.execute("""
         SELECT COUNT(*) as cnt FROM active_sessions
         WHERE status = 'active'
     """).fetchone()
@@ -779,6 +785,8 @@ def render_stats_view():
                 f"Phone: {event.get('phone', '?')} · {event.get('details', '')}"
             )
 
+    return stats
+
 
 # --- Main ---
 
@@ -796,13 +804,15 @@ def run_admin_dashboard():
     render_staff_pings()
 
     # Top-level stats
-    render_stats_view()
+    stats = render_stats_view()
     st.divider()
 
-    # Main tabs
-    tab_floor, tab_orders, tab_sessions = st.tabs(
-        ["🪑 Floor", "🍽️ Orders", "📡 Sessions"]
-    )
+    # Main tabs (with live counts)
+    tab_floor, tab_orders, tab_sessions = st.tabs([
+        f"🪑 Floor ({stats['occupied_tables']})",
+        f"🍽️ Orders ({stats['live_orders']})",
+        f"📡 Sessions ({stats['active_sessions']})",
+    ])
 
     with tab_floor:
         render_floor_view()
