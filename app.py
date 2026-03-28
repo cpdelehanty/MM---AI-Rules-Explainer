@@ -123,6 +123,21 @@ def save_order_to_queue(order_id, phone, visit_id, table_number, items_json,
         print(f"[ORDER QUEUE] Error saving: {e}")
 
 
+def get_table_for_session(visit_id):
+    """Look up table number assigned to a session (e.g. by staff in admin)."""
+    try:
+        conn = sqlite3.connect("game_library.db")
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("""
+            SELECT table_number FROM active_sessions
+            WHERE visit_id=? AND table_number IS NOT NULL
+        """, (visit_id,)).fetchone()
+        conn.close()
+        return row["table_number"] if row else None
+    except Exception:
+        return None
+
+
 def get_table_for_phone(phone):
     """Look up which table a phone is seated at."""
     try:
@@ -275,6 +290,29 @@ Only extract what is explicitly stated. Do not infer."""
     except Exception as e:
         print(f"[PREFERENCE EXTRACTION] Error: {e}")
 
+def summarize_for_staff(reason="rules_question"):
+    """Generate a 6-word-or-less summary of the customer's issue from chat history."""
+    messages = st.session_state.get("messages", [])
+    if not messages:
+        return "Unknown problem"
+
+    # Take last few messages for context
+    recent = messages[-6:]
+    convo = "\n".join(f"{m['role']}: {m['content'][:200]}" for m in recent)
+
+    try:
+        client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        resp = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=30,
+            messages=[{"role": "user", "content": f"Summarize this customer's problem in 6 words or less for a staff member. If unclear, say 'Unknown problem'. No quotes or punctuation.\n\nReason: {reason}\n\nConversation:\n{convo}"}],
+        )
+        summary = resp.content[0].text.strip()[:60]
+        return summary or "Unknown problem"
+    except Exception:
+        return "Unknown problem"
+
+
 def send_staff_ping(table_id, game_title, question, reason="rules_question"):
     """
     Send notification to staff by writing to staff_requests table.
@@ -285,19 +323,22 @@ def send_staff_ping(table_id, game_title, question, reason="rules_question"):
     phone = st.session_state.get("customer_phone")
     table_num = st.session_state.get("table_number")
 
+    # Generate brief AI summary for staff
+    summary = summarize_for_staff(reason)
+
     try:
         conn = sqlite3.connect("game_library.db")
         conn.execute("""
             INSERT INTO staff_requests
                 (visit_id, phone, table_number, game_title, question, reason)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (visit_id, phone, table_num, game_title, question, reason))
+        """, (visit_id, phone, table_num, game_title, summary, reason))
         conn.commit()
         conn.close()
     except Exception as e:
         print(f"[STAFF PING] DB error: {e}")
 
-    print(f"[STAFF PING] Table: {table_id}, Game: {game_title}, Reason: {reason}")
+    print(f"[STAFF PING] Table: {table_num}, Game: {game_title}, Reason: {reason}, Summary: {summary}")
 
     return {
         "success": True,
@@ -1245,6 +1286,19 @@ def open_order_dialog():
         st.caption(ui.get("added_to_tab",
             "This will be added to your tab, which includes your table time and any other orders from this visit."))
 
+        # Table number gate — require before placing order
+        if not st.session_state.get("table_number"):
+            st.divider()
+            st.info("📍 What table are you at? Check the table number sticker on your table.")
+            tbl_input = st.number_input("Table number", min_value=1, max_value=99,
+                                         step=1, key="order_table_input")
+            if st.button("Set table number", use_container_width=True, key="set_table_order"):
+                st.session_state.table_number = int(tbl_input)
+                register_session(st.session_state.visit_id,
+                                 st.session_state.customer_phone,
+                                 st.session_state.table_number)
+                st.rerun(scope="fragment")
+
         # --- Single best upsell on confirmation screen ---
         cart_upsell = evaluate_cart_upsells(st.session_state.cart)
 
@@ -1285,18 +1339,6 @@ def open_order_dialog():
 
             if st.button(f"⬅️ {ui.get('add_more', 'Add more items')}", key="upsell_back", use_container_width=True):
                 st.session_state.dialog_view = "menu"
-                st.rerun(scope="fragment")
-
-        # Table number gate — require before placing order
-        if not st.session_state.get("table_number"):
-            st.info("📍 What table are you at? Check the table number sticker on your table.")
-            tbl_input = st.number_input("Table number", min_value=1, max_value=99,
-                                         step=1, key="order_table_input")
-            if st.button("Set table number", use_container_width=True, key="set_table_order"):
-                st.session_state.table_number = int(tbl_input)
-                register_session(st.session_state.visit_id,
-                                 st.session_state.customer_phone,
-                                 st.session_state.table_number)
                 st.rerun(scope="fragment")
 
         col_back, col_confirm = st.columns(2)
@@ -1943,6 +1985,12 @@ def main():
         st.session_state.games_this_session = []
     if 'table_number' not in st.session_state:
         st.session_state.table_number = None
+
+    # Sync table number from DB (staff may have assigned via admin dashboard)
+    if not st.session_state.table_number and st.session_state.visit_id:
+        db_table = get_table_for_session(st.session_state.visit_id)
+        if db_table:
+            st.session_state.table_number = db_table
 
     # Build deals, events, and cart context (evaluated per-request, after session state init)
     customer_profile_for_deals = None

@@ -374,17 +374,18 @@ def render_staff_pings():
         except (ValueError, TypeError):
             time_str = "?"
 
+        table_display = f"TABLE {table}" if table else "TABLE ?"
         col1, col2 = st.columns([4, 1])
         with col1:
             st.markdown(
-                f"""<div style="background:#7f1d1d; color:#fff; padding:10px 14px;
+                f"""<div style="background:#7f1d1d; color:#fff; padding:12px 14px;
                 border-radius:8px; margin-bottom:6px;">
-                {icon} <b>{reason.replace('_', ' ').title()}</b> —
+                <span style="font-size:1.4em; font-weight:bold;">🪑 {table_display}</span>
+                &nbsp;&nbsp;{icon} {reason.replace('_', ' ').title()} ·
                 📱 {display_phone} ·
-                🪑 Table {table or '?'} ·
                 🎮 {game or 'N/A'} ·
                 ⏱️ {time_str}<br>
-                <span style="color:#fca5a5;">{question}</span>
+                <span style="color:#fca5a5; font-size:1.1em; font-weight:bold;">{question}</span>
                 </div>""",
                 unsafe_allow_html=True,
             )
