@@ -1341,33 +1341,49 @@ def open_order_dialog():
             st.markdown(f"**💡 {ui.get('before_you_order', 'Before you order...')}**")
             st.info(escape_dollars(cart_upsell["message"]))
 
-            # Show suggested items with quick-add buttons
+            # Show suggested items with add button
             suggested = cart_upsell.get("suggested_items", [])
             suggested_lower = {s.lower() for s in suggested}
             discount_pct = cart_upsell.get("discount_percent", 0)
             target_cat = cart_upsell.get("target_category", "")
             menu_items = get_menu_items(category=target_cat, available_only=True)
-            # If no menu items match the category exactly, try without category filter
             if not menu_items and target_cat:
                 menu_items = get_menu_items(available_only=True)
 
+            # Filter to matching items
+            upsell_options = []
             for mi in menu_items:
-                mi_name = mi["name"]
-                if not suggested_lower or mi_name.lower() in suggested_lower:
+                if not suggested_lower or mi["name"].lower() in suggested_lower:
                     mi_price = float(str(mi.get("price", "0")).replace("$", "") or 0)
-                    discounted = mi_price * (1 - discount_pct / 100)
-                    price_display = f"~~\\${mi_price:.2f}~~ :green[**\\${discounted:.2f}**]"
-                    if st.button(
-                        f"➕ {mi_name} — {price_display}",
-                        key=f"upsell_add_{mi['item_id']}",
-                        use_container_width=True,
-                    ):
+                    discounted = round(mi_price * (1 - discount_pct / 100), 2)
+                    upsell_options.append({
+                        **mi, "orig_price": mi_price, "discounted": discounted
+                    })
+
+            if upsell_options:
+                labels = [
+                    f"{o['name']} — ${o['discounted']:.2f} (was ${o['orig_price']:.2f})"
+                    for o in upsell_options
+                ]
+                ucol1, ucol2 = st.columns([3, 1])
+                with ucol1:
+                    sel_idx = st.selectbox(
+                        "Pick an item to add",
+                        range(len(labels)),
+                        format_func=lambda i: labels[i],
+                        key="upsell_select",
+                        label_visibility="collapsed",
+                    )
+                with ucol2:
+                    if st.button(f"➕ {ui.get('add', 'Add')}", key="upsell_add_btn",
+                                  use_container_width=True, type="primary"):
+                        pick = upsell_options[sel_idx]
                         st.session_state.cart.append({
-                            "item_id": mi["item_id"],
-                            "name": mi_name,
-                            "category": mi.get("category", ""),
-                            "price": discounted,
-                            "original_price": mi_price,
+                            "item_id": pick["item_id"],
+                            "name": pick["name"],
+                            "category": pick.get("category", ""),
+                            "price": pick["discounted"],
+                            "original_price": pick["orig_price"],
                             "quantity": 1,
                             "qty": 1,
                             "notes": f"{discount_pct:.0f}% off deal applied",
