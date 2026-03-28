@@ -1395,38 +1395,26 @@ def open_order_dialog():
                         **mi, "orig_price": mi_price, "discounted": discounted
                     })
 
-            if upsell_options:
-                labels = [
-                    f"{o['name']} — ${o['discounted']:.2f} (was ${o['orig_price']:.2f})"
-                    for o in upsell_options
-                ]
-                ucol1, ucol2 = st.columns([3, 1])
-                with ucol1:
-                    sel_idx = st.selectbox(
-                        "Pick an item to add",
-                        range(len(labels)),
-                        format_func=lambda i: labels[i],
-                        key="upsell_select",
-                        label_visibility="collapsed",
-                    )
-                with ucol2:
-                    if st.button(f"➕ {ui.get('add', 'Add')}", key="upsell_add_btn",
-                                  use_container_width=True, type="primary"):
-                        pick = upsell_options[sel_idx]
-                        st.session_state.cart.append({
-                            "item_id": pick["item_id"],
-                            "name": pick["name"],
-                            "category": pick.get("category", ""),
-                            "price": pick["discounted"],
-                            "original_price": pick["orig_price"],
-                            "quantity": 1,
-                            "qty": 1,
-                            "notes": f"{discount_pct:.0f}% off deal applied",
-                            "upsell_id": cart_upsell["id"],
-                        })
-                        st.rerun(scope="fragment")
+            upsell_id = cart_upsell["id"]
+            for oi, opt in enumerate(upsell_options):
+                label = f"➕ {opt['name']} — ${opt['discounted']:.2f} (was ${opt['orig_price']:.2f})"
+                if st.button(label, key=f"upsell_{upsell_id}_{oi}",
+                              use_container_width=True):
+                    st.session_state.cart.append({
+                        "item_id": opt["item_id"],
+                        "name": opt["name"],
+                        "category": opt.get("category", ""),
+                        "price": opt["discounted"],
+                        "original_price": opt["orig_price"],
+                        "quantity": 1,
+                        "qty": 1,
+                        "notes": f"{discount_pct:.0f}% off deal applied",
+                        "upsell_id": upsell_id,
+                    })
+                    st.rerun(scope="fragment")
 
-            if st.button(f"⬅️ {ui.get('add_more', 'Add more items')}", key="upsell_back", use_container_width=True):
+            if st.button(f"⬅️ {ui.get('add_more', 'Add more items')}", key=f"upsell_back_{upsell_id}",
+                          use_container_width=True):
                 st.session_state.dialog_view = "menu"
                 st.rerun(scope="fragment")
 
