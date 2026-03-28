@@ -273,8 +273,10 @@ def check_admin_auth():
 
     if not st.session_state.admin_authenticated:
         st.title("🎲 Merry Meeple — Staff Login")
-        password = st.text_input("Staff password", type="password")
-        if st.button("Log in", use_container_width=True):
+        with st.form("admin_login_form"):
+            password = st.text_input("Staff password", type="password")
+            submitted = st.form_submit_button("Log in", use_container_width=True)
+        if submitted:
             if password == ADMIN_PASSWORD:
                 st.session_state.admin_authenticated = True
                 st.rerun()
