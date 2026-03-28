@@ -1351,14 +1351,22 @@ def open_order_dialog():
         if not st.session_state.get("table_number"):
             st.divider()
             st.info("📍 What table are you at? Check the table number sticker on your table.")
-            tbl_input = st.number_input("Table number", min_value=1, max_value=99,
-                                         step=1, key="order_table_input")
-            if st.button("Set table number", use_container_width=True, key="set_table_order"):
-                st.session_state.table_number = int(tbl_input)
-                claim_table(st.session_state.visit_id,
-                            st.session_state.customer_phone,
-                            st.session_state.table_number)
-                st.rerun(scope="fragment")
+            with st.form("order_table_form"):
+                tbl_input = st.text_input("Table number", placeholder="e.g. 5",
+                                           key="order_table_input")
+                if st.form_submit_button("Set table number", use_container_width=True):
+                    try:
+                        tbl_num = int(tbl_input.strip())
+                        if 1 <= tbl_num <= 99:
+                            st.session_state.table_number = tbl_num
+                            claim_table(st.session_state.visit_id,
+                                        st.session_state.customer_phone,
+                                        st.session_state.table_number)
+                            st.rerun(scope="fragment")
+                        else:
+                            st.error("Please enter a table number between 1 and 99.")
+                    except (ValueError, AttributeError):
+                        st.error("Please enter a valid table number.")
 
         # --- Single best upsell on confirmation screen ---
         cart_upsell = evaluate_cart_upsells(st.session_state.cart)
@@ -2150,30 +2158,33 @@ Keep it to 1-2 sentences. Don't mention their phone number.
     # Table number prompt for staff help button
     if st.session_state.get("_staff_btn_needs_table"):
         st.warning("📍 What table are you at? Check the table number sticker on your table.")
-        scol1, scol2 = st.columns([1, 1])
-        with scol1:
-            staff_tbl = st.number_input("Table number", min_value=1, max_value=99,
-                                         step=1, key="staff_btn_tbl")
-        with scol2:
-            st.markdown("")
-            if st.button("Submit & notify staff", key="staff_btn_tbl_go",
-                          use_container_width=True, type="primary"):
-                st.session_state.table_number = int(staff_tbl)
-                claim_table(st.session_state.visit_id,
-                            st.session_state.customer_phone,
-                            st.session_state.table_number)
-                st.session_state._staff_btn_needs_table = False
-                result = send_staff_ping(
-                    table_id=f"Table {st.session_state.table_number}",
-                    game_title=st.session_state.current_game or "N/A",
-                    question="Staff help requested via button",
-                    reason="general_help"
-                )
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": "✅ " + result["message"]
-                })
-                st.rerun()
+        with st.form("staff_table_form"):
+            staff_tbl = st.text_input("Table number", placeholder="e.g. 5",
+                                       key="staff_btn_tbl")
+            if st.form_submit_button("Submit & notify staff", use_container_width=True):
+                try:
+                    tbl_num = int(staff_tbl.strip())
+                    if 1 <= tbl_num <= 99:
+                        st.session_state.table_number = tbl_num
+                        claim_table(st.session_state.visit_id,
+                                    st.session_state.customer_phone,
+                                    st.session_state.table_number)
+                        st.session_state._staff_btn_needs_table = False
+                        result = send_staff_ping(
+                            table_id=f"Table {st.session_state.table_number}",
+                            game_title=st.session_state.current_game or "N/A",
+                            question="Staff help requested via button",
+                            reason="general_help"
+                        )
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": "✅ " + result["message"]
+                        })
+                        st.rerun()
+                    else:
+                        st.error("Please enter a table number between 1 and 99.")
+                except (ValueError, AttributeError):
+                    st.error("Please enter a valid table number.")
 
     # Display chat history
     for idx, message in enumerate(st.session_state.messages):
@@ -2189,33 +2200,35 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                     # If we're waiting for table number for this ping
                     if st.session_state.get("_ping_needs_table") == idx:
                         st.info("📍 What table are you at? Check the table number sticker on your table.")
-                        pcol1, pcol2 = st.columns([1, 1])
-                        with pcol1:
-                            tbl_val = st.number_input("Table number", min_value=1,
-                                                       max_value=99, step=1,
-                                                       key=f"ping_tbl_{idx}")
-                        with pcol2:
-                            st.markdown("")  # spacer
-                            if st.button("Submit", key=f"ping_tbl_go_{idx}",
-                                          use_container_width=True):
-                                st.session_state.table_number = int(tbl_val)
-                                claim_table(st.session_state.visit_id,
-                                            st.session_state.customer_phone,
-                                            st.session_state.table_number)
-                                st.session_state._ping_needs_table = None
-                                # Now send the ping
-                                result = send_staff_ping(
-                                    table_id=f"Table {st.session_state.table_number}",
-                                    game_title=st.session_state.current_game or "Unknown",
-                                    question=st.session_state.last_question or "Help requested",
-                                    reason="rules_question"
-                                )
-                                st.session_state.messages[idx]["staff_requested"] = True
-                                st.session_state.messages.append({
-                                    "role": "assistant",
-                                    "content": "✅ " + result["message"]
-                                })
-                                st.rerun()
+                        with st.form(f"ping_tbl_form_{idx}"):
+                            tbl_val = st.text_input("Table number", placeholder="e.g. 5",
+                                                     key=f"ping_tbl_{idx}")
+                            if st.form_submit_button("Submit & notify staff",
+                                                      use_container_width=True):
+                                try:
+                                    tbl_num = int(tbl_val.strip())
+                                    if 1 <= tbl_num <= 99:
+                                        st.session_state.table_number = tbl_num
+                                        claim_table(st.session_state.visit_id,
+                                                    st.session_state.customer_phone,
+                                                    st.session_state.table_number)
+                                        st.session_state._ping_needs_table = None
+                                        result = send_staff_ping(
+                                            table_id=f"Table {st.session_state.table_number}",
+                                            game_title=st.session_state.current_game or "Unknown",
+                                            question=st.session_state.last_question or "Help requested",
+                                            reason="rules_question"
+                                        )
+                                        st.session_state.messages[idx]["staff_requested"] = True
+                                        st.session_state.messages.append({
+                                            "role": "assistant",
+                                            "content": "✅ " + result["message"]
+                                        })
+                                        st.rerun()
+                                    else:
+                                        st.error("Enter a number between 1 and 99.")
+                                except (ValueError, AttributeError):
+                                    st.error("Please enter a valid table number.")
                     else:
                         col1, col2, col3 = st.columns([1, 1, 3])
                         with col1:
