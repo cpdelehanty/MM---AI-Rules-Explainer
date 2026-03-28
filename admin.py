@@ -6,6 +6,7 @@ Protected by admin password.
 """
 
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 import os
 import json
 import sqlite3
@@ -621,11 +622,8 @@ def main():
     with tab_sessions:
         render_sessions_view()
 
-    # Auto-refresh every 30 seconds
-    st.markdown(
-        """<meta http-equiv="refresh" content="30">""",
-        unsafe_allow_html=True,
-    )
+    # Auto-refresh every 30 seconds (uses Streamlit rerun, not full page reload)
+    st_autorefresh(interval=30_000, key="admin_refresh")
 
 
 if __name__ == "__main__":
