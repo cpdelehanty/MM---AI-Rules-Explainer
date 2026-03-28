@@ -152,6 +152,40 @@ def get_table_for_phone(phone):
     except Exception:
         return None
 
+def claim_table(visit_id, phone, table_num):
+    """Link a customer session to a table. Marks the table occupied if not already.
+    Multiple sessions can share the same table (e.g. a group where each person logs in)."""
+    try:
+        conn = sqlite3.connect("game_library.db")
+        conn.row_factory = sqlite3.Row
+        # Update this session's table number
+        conn.execute("""
+            UPDATE active_sessions SET table_number=? WHERE visit_id=?
+        """, (table_num, visit_id))
+        # Mark table occupied if not already
+        tbl = conn.execute("""
+            SELECT status, party_size FROM tables WHERE table_number=?
+        """, (table_num,)).fetchone()
+        if tbl:
+            if tbl["status"] != "occupied":
+                conn.execute("""
+                    UPDATE tables SET status='occupied', seated_at=CURRENT_TIMESTAMP
+                    WHERE table_number=?
+                """, (table_num,))
+            # Increment party size based on active sessions at this table
+            count = conn.execute("""
+                SELECT COUNT(*) as cnt FROM active_sessions
+                WHERE table_number=? AND status='active'
+            """, (table_num,)).fetchone()["cnt"]
+            conn.execute("""
+                UPDATE tables SET party_size=? WHERE table_number=?
+            """, (max(count, 1), table_num))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[TABLE] Error claiming table: {e}")
+
+
 PREFERENCE_KEYWORDS = [
     "allergic", "allergy", "vegetarian", "vegan", "gluten", "dairy",
     "kosher", "halal", "nut", "celiac", "lactose",
@@ -1294,9 +1328,9 @@ def open_order_dialog():
                                          step=1, key="order_table_input")
             if st.button("Set table number", use_container_width=True, key="set_table_order"):
                 st.session_state.table_number = int(tbl_input)
-                register_session(st.session_state.visit_id,
-                                 st.session_state.customer_phone,
-                                 st.session_state.table_number)
+                claim_table(st.session_state.visit_id,
+                            st.session_state.customer_phone,
+                            st.session_state.table_number)
                 st.rerun(scope="fragment")
 
         # --- Single best upsell on confirmation screen ---
@@ -1849,6 +1883,7 @@ def main():
                         register_session(st.session_state.visit_id, normalized, table_num)
                         if table_num:
                             st.session_state.table_number = table_num
+                            claim_table(st.session_state.visit_id, normalized, table_num)
                     st.rerun()
             else:
                 st.error(t.get("error_empty", "Please enter your phone number or 999 to continue as a guest."))
@@ -2084,9 +2119,9 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                             if st.button("Submit", key=f"ping_tbl_go_{idx}",
                                           use_container_width=True):
                                 st.session_state.table_number = int(tbl_val)
-                                register_session(st.session_state.visit_id,
-                                                 st.session_state.customer_phone,
-                                                 st.session_state.table_number)
+                                claim_table(st.session_state.visit_id,
+                                            st.session_state.customer_phone,
+                                            st.session_state.table_number)
                                 st.session_state._ping_needs_table = None
                                 # Now send the ping
                                 result = send_staff_ping(

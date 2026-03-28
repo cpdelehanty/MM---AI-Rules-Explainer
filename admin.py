@@ -130,6 +130,11 @@ def clear_table(table_num):
             party_size=1, seated_at=NULL, notes=NULL
         WHERE table_number=?
     """, (table_num,))
+    # End all active sessions at this table
+    conn.execute("""
+        UPDATE active_sessions SET status='ended', killed_at=CURRENT_TIMESTAMP
+        WHERE table_number=? AND status='active'
+    """, (table_num,))
     conn.commit()
     conn.close()
 
@@ -209,16 +214,33 @@ def get_session_for_phone(phone):
 
 
 def link_session_to_table(visit_id, table_num):
-    """Link a session to a table."""
+    """Link a session to a table. Multiple sessions can share a table."""
     conn = get_db()
     conn.execute("""
         UPDATE active_sessions SET table_number = ? WHERE visit_id = ?
     """, (table_num, visit_id))
+    # Update party size to reflect all active sessions at this table
+    count = conn.execute("""
+        SELECT COUNT(*) as cnt FROM active_sessions
+        WHERE table_number = ? AND status = 'active'
+    """, (table_num,)).fetchone()["cnt"]
     conn.execute("""
-        UPDATE tables SET visit_id = ? WHERE table_number = ?
-    """, (visit_id, table_num))
+        UPDATE tables SET party_size = ? WHERE table_number = ?
+    """, (max(count, 1), table_num))
     conn.commit()
     conn.close()
+
+
+def get_sessions_at_table(table_num):
+    """Get all active sessions at a given table."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM active_sessions
+        WHERE table_number = ? AND status = 'active'
+        ORDER BY started_at ASC
+    """, (table_num,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def get_table_orders(table_num):
@@ -412,7 +434,6 @@ def render_floor_view():
             status = table["status"]
 
             if status == "occupied":
-                phone = table.get("phone", "Unknown")
                 party = table.get("party_size", 1)
                 seated = table.get("seated_at", "")
                 if seated:
@@ -427,12 +448,20 @@ def render_floor_view():
                 else:
                     time_str = "?"
 
+                # Show active sessions (devices) at this table
+                sessions_here = get_sessions_at_table(tnum)
+                session_count = len(sessions_here)
+                phones_display = ", ".join(
+                    f"...{s['phone'][-4:]}" for s in sessions_here
+                    if s.get("phone") and len(s["phone"]) >= 4
+                ) or "?"
+
                 st.markdown(
                     f"""<div style="background:#2d5016; color:#fff; border-radius:10px; padding:12px;
                     margin-bottom:8px; border: 2px solid #4a8c1c;">
                     <b>Table {tnum}</b> 🟢<br>
-                    📱 {phone[-4:] if phone and len(phone) >= 4 else '?'}<br>
-                    👥 {party} · ⏱️ {time_str}
+                    📱 {phones_display}<br>
+                    👥 {party} · 📲 {session_count} · ⏱️ {time_str}
                     </div>""",
                     unsafe_allow_html=True,
                 )
@@ -535,15 +564,26 @@ def render_sessions_view():
         header = f"📱 {display_phone} · 🪑 Table {table or '?'} · ⏱️ {time_str} · 🎮 {game or 'No game'} · Last: {idle_str}"
 
         with st.expander(header, expanded=False):
-            # Assign table
+            # Assign table (can assign to available or occupied tables)
             st.markdown("**Assign Table**")
             if table:
                 st.caption(f"Currently at Table {table}")
-            if avail_tables:
+            all_table_nums = [t["table_number"] for t in tables]
+            if all_table_nums:
+                # Show all tables, label occupied ones
+                table_labels = {}
+                for t in tables:
+                    tn = t["table_number"]
+                    if t["status"] == "occupied":
+                        table_labels[tn] = f"Table {tn} (occupied, {t.get('party_size', '?')} guests)"
+                    else:
+                        table_labels[tn] = f"Table {tn}"
                 tcol1, tcol2, tcol3 = st.columns([1, 1, 1])
                 with tcol1:
-                    sel_table = st.selectbox("Table", avail_tables,
-                                              key=f"sess_tbl_{visit_id}")
+                    sel_table = st.selectbox(
+                        "Table", all_table_nums,
+                        format_func=lambda x: table_labels.get(x, f"Table {x}"),
+                        key=f"sess_tbl_{visit_id}")
                 with tcol2:
                     party_size = st.number_input("Party size", min_value=1,
                                                   max_value=20, value=2,
@@ -552,12 +592,13 @@ def render_sessions_view():
                     st.markdown("")  # spacer
                     if st.button("Assign Table", key=f"sess_assign_{visit_id}",
                                   use_container_width=True):
-                        seat_table(sel_table, phone or "walk-in", party_size)
+                        # Only seat if table isn't already occupied
+                        tbl_info = next((t for t in tables if t["table_number"] == sel_table), None)
+                        if not tbl_info or tbl_info["status"] != "occupied":
+                            seat_table(sel_table, phone or "walk-in", party_size)
                         link_session_to_table(visit_id, sel_table)
                         st.success(f"Assigned to Table {sel_table}")
                         st.rerun()
-            else:
-                st.caption("No available tables")
 
             st.markdown("**Assign Game**")
             gcol1, gcol2 = st.columns([2, 1])
