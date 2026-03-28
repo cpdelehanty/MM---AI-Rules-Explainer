@@ -800,7 +800,7 @@ Rules for answering:
 - NEVER say you've notified staff unless the customer clicked the actual button
 
 STAFF NOTIFICATION:
-When the situation clearly requires a staff member to come to the table (emergencies, injuries, spills, complaints, explicit "get me a staff member" requests, or anything you can't resolve through chat), include the tag [STAFF_PING:general_help] at the END of your response. This silently notifies staff — you should still respond empathetically to the customer. Only use this for situations where staff MUST come to the table, not for routine rules questions.
+When the situation clearly requires a staff member to come to the table (emergencies, injuries, spills, complaints, explicit "get me a staff member" requests, or anything you can't resolve through chat), include the tag [STAFF_PING:general_help] at the END of your response. This will show the customer a "Notify staff" button they must click to confirm. In your response, tell the customer to click the button below to notify staff — do NOT say you've already notified them or that staff are on the way. Only use this for situations where staff MUST come to the table, not for routine rules questions.
 
 SOURCE DOCUMENTS FOR {game_title.upper()}:
 {context}
