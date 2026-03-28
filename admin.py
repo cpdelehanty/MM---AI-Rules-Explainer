@@ -816,7 +816,7 @@ def run_admin_dashboard():
         render_sessions_view()
 
     # Auto-refresh every 30 seconds (uses Streamlit rerun, not full page reload)
-    st_autorefresh(interval=30_000, key="admin_refresh")
+    st_autorefresh(interval=10_000, key="admin_refresh")
 
 
 def main():
