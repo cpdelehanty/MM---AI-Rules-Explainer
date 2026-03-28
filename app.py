@@ -409,13 +409,26 @@ def check_for_injection(user_message, phone):
         )
 
 
-# Page config
-st.set_page_config(
-    page_title="The Merry Meeple - Rules Assistant",
-    page_icon="🎲",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
+# --- Admin route: ?admin=1 serves the staff dashboard in the same process ---
+_is_admin = st.query_params.get("admin") == "1"
+
+if _is_admin:
+    st.set_page_config(
+        page_title="Merry Meeple — Staff Dashboard",
+        page_icon="🎲",
+        layout="wide",
+    )
+    from admin import run_admin_dashboard
+    init_database()
+    run_admin_dashboard()
+    st.stop()
+else:
+    st.set_page_config(
+        page_title="The Merry Meeple - Rules Assistant",
+        page_icon="🎲",
+        layout="centered",
+        initial_sidebar_state="collapsed"
+    )
 
 # Custom CSS: pin quick-action buttons just above the chat input
 st.markdown("""

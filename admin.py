@@ -21,11 +21,13 @@ load_dotenv()
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "merrymeeple2026")
 TOTAL_TABLES = int(os.environ.get("TOTAL_TABLES", "12"))
 
-st.set_page_config(
-    page_title="Merry Meeple — Staff Dashboard",
-    page_icon="🎲",
-    layout="wide",
-)
+# Only set page config when running standalone (not embedded in app.py)
+if __name__ == "__main__":
+    st.set_page_config(
+        page_title="Merry Meeple — Staff Dashboard",
+        page_icon="🎲",
+        layout="wide",
+    )
 
 
 # --- DB helpers ---
@@ -595,8 +597,9 @@ def render_stats_view():
 
 # --- Main ---
 
-def main():
-    init_database()
+def run_admin_dashboard():
+    """Render the admin dashboard. Can be called from app.py or standalone.
+    Assumes init_database() has already been called and page_config is set."""
     init_admin_tables()
 
     if not check_admin_auth():
@@ -624,6 +627,11 @@ def main():
 
     # Auto-refresh every 30 seconds (uses Streamlit rerun, not full page reload)
     st_autorefresh(interval=30_000, key="admin_refresh")
+
+
+def main():
+    init_database()
+    run_admin_dashboard()
 
 
 if __name__ == "__main__":
