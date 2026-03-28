@@ -226,6 +226,56 @@ def init_database():
         )
     """)
 
+    # Active sessions table (shared between app.py and admin.py)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS active_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            visit_id TEXT UNIQUE NOT NULL,
+            phone TEXT,
+            table_number INTEGER,
+            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            current_game TEXT,
+            status TEXT DEFAULT 'active',
+            killed_by TEXT,
+            killed_at TIMESTAMP
+        )
+    """)
+
+    # Tables table (floor map)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tables (
+            table_number INTEGER PRIMARY KEY,
+            status TEXT DEFAULT 'available',
+            phone TEXT,
+            visit_id TEXT,
+            party_size INTEGER DEFAULT 1,
+            seated_at TIMESTAMP,
+            notes TEXT
+        )
+    """)
+
+    # Order queue (staff-facing order tracking)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS order_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id TEXT UNIQUE NOT NULL,
+            phone TEXT,
+            visit_id TEXT,
+            table_number INTEGER,
+            items TEXT NOT NULL,
+            subtotal REAL,
+            discount REAL DEFAULT 0,
+            tax REAL DEFAULT 0,
+            total REAL NOT NULL,
+            status TEXT DEFAULT 'pending',
+            staff_notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            accepted_at TIMESTAMP,
+            completed_at TIMESTAMP
+        )
+    """)
+
     # Create index for faster lookups
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_game_id ON chunks(game_id)
