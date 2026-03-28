@@ -392,19 +392,15 @@ STAFF_PING_RE = re.compile(r'\[STAFF_PING:(\w+)\]')
 
 
 def process_staff_ping_tags(text):
-    """Strip [STAFF_PING:reason] tags from AI response and fire pings."""
+    """Strip [STAFF_PING:reason] tags from AI response. Returns cleaned text
+    and the reason if a tag was found (ping is NOT sent automatically —
+    the chat display loop shows a confirm button instead)."""
     match = STAFF_PING_RE.search(text)
     if match:
         reason = match.group(1)
         cleaned = STAFF_PING_RE.sub("", text).strip()
-        send_staff_ping(
-            table_id=f"Table {st.session_state.get('table_number', '?')}",
-            game_title=st.session_state.get("current_game") or "N/A",
-            question="AI-triggered ping",
-            reason=reason
-        )
-        return cleaned, True
-    return text, False
+        return cleaned, reason
+    return text, None
 
 
 # Regex patterns for order tags
@@ -2252,7 +2248,32 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 
                 elif message.get("staff_requested") == True:
                     st.success("✅ Staff has been notified")
-    
+
+            # Show confirm button for AI-suggested staff pings
+            if message["role"] == "assistant" and message.get("pending_ping"):
+                if message.get("ping_confirmed") is None:
+                    col1, col2, col3 = st.columns([1, 1, 3])
+                    with col1:
+                        if st.button("🚨 Yes, notify staff", key=f"ping_confirm_{idx}"):
+                            send_staff_ping(
+                                table_id=f"Table {st.session_state.get('table_number', '?')}",
+                                game_title=st.session_state.current_game or "N/A",
+                                question="AI-suggested ping confirmed by customer",
+                                reason=message["pending_ping"]
+                            )
+                            st.session_state.messages[idx]["ping_confirmed"] = True
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": "✅ Staff has been notified! Someone will be with you shortly."
+                            })
+                            st.rerun()
+                    with col2:
+                        if st.button("No, I'm fine", key=f"ping_decline_{idx}"):
+                            st.session_state.messages[idx]["ping_confirmed"] = False
+                            st.rerun()
+                elif message.get("ping_confirmed") == True:
+                    st.success("✅ Staff has been notified")
+
     # Quick-action buttons pinned in bottom bar, above chat input
     with st._bottom:
         cols = st.columns(4)
@@ -2368,7 +2389,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                     eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
                 )
                 # Check for food order staff ping (legacy)
-                response, _ = process_staff_ping_tags(response)
+                response, ping_reason = process_staff_ping_tags(response)
                 # Simulate streaming for cached responses
                 if is_cached_response:
                     def _stream_cached(text, chunk_size=8):
@@ -2381,7 +2402,10 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 else:
                     with st.chat_message("assistant"):
                         st.markdown(escape_dollars(response))
-                st.session_state.messages.append({"role": "assistant", "content": response})
+                msg = {"role": "assistant", "content": response}
+                if ping_reason:
+                    msg["pending_ping"] = ping_reason
+                st.session_state.messages.append(msg)
                 if order_placed:
                     st.session_state.cart = []
                     st.session_state.deals_applied = []
@@ -2437,7 +2461,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                             answer, st.session_state.cart, st.session_state.deals_applied,
                             eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
                         )
-                        answer, _ = process_staff_ping_tags(answer)
+                        answer, ping_reason = process_staff_ping_tags(answer)
                         st.session_state.last_answer_meta = {'sources_used': sources_used}
                         if pages:
                             st.caption(f"📄 {ui.get('pages', 'Pages')}: {', '.join(map(str, pages))}")
@@ -2445,12 +2469,14 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                     msg = {"role": "assistant", "content": answer}
                     if pages:
                         msg["pages"] = pages
+                    if ping_reason:
+                        msg["pending_ping"] = ping_reason
                     st.session_state.messages.append(msg)
                     if order_placed:
                         st.session_state.cart = []
                         st.session_state.deals_applied = []
                         st.rerun()
-                    elif "request staff assistance" in answer.lower():
+                    elif ping_reason or "request staff assistance" in answer.lower():
                         st.rerun()
                 else:
                     # Just selecting a game — show intro
@@ -2490,7 +2516,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                         answer, st.session_state.cart, st.session_state.deals_applied,
                         eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
                     )
-                    answer, _ = process_staff_ping_tags(answer)
+                    answer, ping_reason = process_staff_ping_tags(answer)
                     st.session_state.last_answer_meta = {'sources_used': sources_used}
 
                     if pages:
@@ -2501,17 +2527,16 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                         source_str = ' + '.join([source_labels.get(s, s.title()) for s in sorted(sources_used)])
                         st.caption(f"📚 Sources: {source_str}")
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": answer,
-                    "pages": pages
-                })
+                msg = {"role": "assistant", "content": answer, "pages": pages}
+                if ping_reason:
+                    msg["pending_ping"] = ping_reason
+                st.session_state.messages.append(msg)
 
                 if order_placed:
                     st.session_state.cart = []
                     st.session_state.deals_applied = []
                     st.rerun()
-                elif "request staff assistance" in answer.lower():
+                elif ping_reason or "request staff assistance" in answer.lower():
                     st.rerun()
 
             else:
@@ -2536,15 +2561,17 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                         response, st.session_state.cart, st.session_state.deals_applied,
                         eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
                     )
-                    response, _ = process_staff_ping_tags(response)
+                    response, ping_reason = process_staff_ping_tags(response)
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": response
-                })
+                msg = {"role": "assistant", "content": response}
+                if ping_reason:
+                    msg["pending_ping"] = ping_reason
+                st.session_state.messages.append(msg)
                 if order_placed:
                     st.session_state.cart = []
                     st.session_state.deals_applied = []
+                    st.rerun()
+                elif ping_reason:
                     st.rerun()
         
         else:
@@ -2572,7 +2599,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                     answer, st.session_state.cart, st.session_state.deals_applied,
                     eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
                 )
-                answer, _ = process_staff_ping_tags(answer)
+                answer, ping_reason = process_staff_ping_tags(answer)
                 st.session_state.last_answer_meta = {'sources_used': sources_used}
 
                 if pages:
@@ -2583,17 +2610,16 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                     source_str = ' + '.join([source_labels.get(s, s.title()) for s in sorted(sources_used)])
                     st.caption(f"📚 Sources: {source_str}")
 
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": answer,
-                "pages": pages
-            })
+            msg = {"role": "assistant", "content": answer, "pages": pages}
+            if ping_reason:
+                msg["pending_ping"] = ping_reason
+            st.session_state.messages.append(msg)
 
             if order_placed:
                 st.session_state.cart = []
                 st.session_state.deals_applied = []
                 st.rerun()
-            elif "request staff assistance" in answer.lower():
+            elif ping_reason or "request staff assistance" in answer.lower():
                 st.rerun()
     
     # Footer
