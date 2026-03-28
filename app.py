@@ -358,9 +358,12 @@ def send_staff_ping(table_id, game_title, question, reason="rules_question", sum
     phone = st.session_state.get("customer_phone")
     table_num = st.session_state.get("table_number")
 
-    # Use provided summary or generate from conversation
+    # Use provided summary, or fall back to question text, then try AI summary
     if not summary:
-        summary = summarize_for_staff(reason)
+        try:
+            summary = summarize_for_staff(reason)
+        except Exception:
+            summary = question or "Help requested"
 
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -371,6 +374,7 @@ def send_staff_ping(table_id, game_title, question, reason="rules_question", sum
         """, (visit_id, phone, table_num, game_title, summary, reason))
         conn.commit()
         conn.close()
+        print(f"[STAFF PING] Saved: table={table_num}, reason={reason}, summary={summary}")
     except Exception as e:
         print(f"[STAFF PING] DB error: {e}")
 
@@ -2121,7 +2125,35 @@ Keep it to 1-2 sentences. Don't mention their phone number.
     # Show current game if selected
     if st.session_state.current_game:
         st.info(f"🎮 {ui.get('currently_helping', 'Currently helping with')}: **{st.session_state.current_game}**")
-    
+
+    # Table number prompt for staff help button
+    if st.session_state.get("_staff_btn_needs_table"):
+        st.warning("📍 What table are you at? Check the table number sticker on your table.")
+        scol1, scol2 = st.columns([1, 1])
+        with scol1:
+            staff_tbl = st.number_input("Table number", min_value=1, max_value=99,
+                                         step=1, key="staff_btn_tbl")
+        with scol2:
+            st.markdown("")
+            if st.button("Submit & notify staff", key="staff_btn_tbl_go",
+                          use_container_width=True, type="primary"):
+                st.session_state.table_number = int(staff_tbl)
+                claim_table(st.session_state.visit_id,
+                            st.session_state.customer_phone,
+                            st.session_state.table_number)
+                st.session_state._staff_btn_needs_table = False
+                result = send_staff_ping(
+                    table_id=f"Table {st.session_state.table_number}",
+                    game_title=st.session_state.current_game or "N/A",
+                    question="Staff help requested via button",
+                    reason="general_help"
+                )
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": "✅ " + result["message"]
+                })
+                st.rerun()
+
     # Display chat history
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
@@ -2219,8 +2251,21 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 open_order_dialog()
         with cols[3]:
             if st.button(f"🙋 {ui.get('get_staff', 'Get staff help')}", use_container_width=True, key="btn_staff"):
-                st.session_state.pending_quick_action = "I need help from a staff member"
-                st.rerun()
+                if not st.session_state.get("table_number"):
+                    st.session_state._staff_btn_needs_table = True
+                    st.rerun()
+                else:
+                    result = send_staff_ping(
+                        table_id=f"Table {st.session_state.table_number}",
+                        game_title=st.session_state.current_game or "N/A",
+                        question="Staff help requested via button",
+                        reason="general_help"
+                    )
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": "✅ " + result["message"]
+                    })
+                    st.rerun()
 
     # Chat input (also in bottom bar, rendered after buttons)
     typed_input = st.chat_input(ui.get("chat_placeholder", "Ask about rules, the menu, or anything else..."))
