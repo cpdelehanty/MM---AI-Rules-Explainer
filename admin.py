@@ -598,7 +598,6 @@ def render_sessions_view():
                             seat_table(sel_table, phone or "walk-in", party_size)
                         link_session_to_table(visit_id, sel_table)
                         st.success(f"Assigned to Table {sel_table}")
-                        st.rerun()
 
             st.markdown("**Assign Game**")
             gcol1, gcol2 = st.columns([2, 1])
@@ -613,7 +612,6 @@ def render_sessions_view():
                     new_game = sel_game if sel_game != "(none)" else None
                     assign_game_to_session(visit_id, new_game)
                     st.success(f"Game set to {new_game or 'none'}")
-                    st.rerun()
 
             st.divider()
             if st.button("End Session", key=f"kill_{visit_id}", type="primary",
