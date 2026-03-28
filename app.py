@@ -15,7 +15,7 @@ import voyageai
 from dotenv import load_dotenv
 from database import (
     init_database, get_all_games, get_game_chunks,
-    log_security_event, save_order, get_menu_items,
+    log_security_event, save_order, get_menu_items, DB_PATH,
 )
 from sync_menu import should_sync, sync_menu_from_sheets, format_menu_for_prompt
 from sync_deals import (
@@ -45,7 +45,7 @@ TOP_K_RESULTS = 5
 def register_session(visit_id, phone, table_number=None):
     """Register an active session in the admin DB."""
     try:
-        conn = sqlite3.connect("game_library.db")
+        conn = sqlite3.connect(DB_PATH)
         conn.execute("""
             INSERT OR REPLACE INTO active_sessions
                 (visit_id, phone, table_number, started_at, last_activity, status)
@@ -60,7 +60,7 @@ def register_session(visit_id, phone, table_number=None):
 def update_session_activity(visit_id, current_game=None):
     """Update last_activity timestamp and current game."""
     try:
-        conn = sqlite3.connect("game_library.db")
+        conn = sqlite3.connect(DB_PATH)
         if current_game:
             conn.execute("""
                 UPDATE active_sessions SET last_activity=CURRENT_TIMESTAMP,
@@ -80,7 +80,7 @@ def update_session_activity(visit_id, current_game=None):
 def is_session_killed(visit_id):
     """Check if a session has been killed by staff."""
     try:
-        conn = sqlite3.connect("game_library.db")
+        conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         row = conn.execute("""
             SELECT status FROM active_sessions WHERE visit_id=?
@@ -94,7 +94,7 @@ def is_session_killed(visit_id):
 def end_session(visit_id):
     """Mark session as ended (customer left)."""
     try:
-        conn = sqlite3.connect("game_library.db")
+        conn = sqlite3.connect(DB_PATH)
         conn.execute("""
             UPDATE active_sessions SET status='ended',
                 killed_at=CURRENT_TIMESTAMP WHERE visit_id=?
@@ -109,7 +109,7 @@ def save_order_to_queue(order_id, phone, visit_id, table_number, items_json,
                          subtotal, discount, tax, total):
     """Save order to admin order queue."""
     try:
-        conn = sqlite3.connect("game_library.db")
+        conn = sqlite3.connect(DB_PATH)
         conn.execute("""
             INSERT INTO order_queue
                 (order_id, phone, visit_id, table_number, items,
@@ -126,7 +126,7 @@ def save_order_to_queue(order_id, phone, visit_id, table_number, items_json,
 def get_table_for_session(visit_id):
     """Look up table number assigned to a session (e.g. by staff in admin)."""
     try:
-        conn = sqlite3.connect("game_library.db")
+        conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         row = conn.execute("""
             SELECT table_number FROM active_sessions
@@ -141,7 +141,7 @@ def get_table_for_session(visit_id):
 def get_table_for_phone(phone):
     """Look up which table a phone is seated at."""
     try:
-        conn = sqlite3.connect("game_library.db")
+        conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         row = conn.execute("""
             SELECT table_number FROM tables
@@ -156,7 +156,7 @@ def claim_table(visit_id, phone, table_num):
     """Link a customer session to a table. Marks the table occupied if not already.
     Multiple sessions can share the same table (e.g. a group where each person logs in)."""
     try:
-        conn = sqlite3.connect("game_library.db")
+        conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         # Update this session's table number
         conn.execute("""
@@ -347,21 +347,23 @@ def summarize_for_staff(reason="rules_question"):
         return "Unknown problem"
 
 
-def send_staff_ping(table_id, game_title, question, reason="rules_question"):
+def send_staff_ping(table_id, game_title, question, reason="rules_question", summary=None):
     """
     Send notification to staff by writing to staff_requests table.
     Staff dashboard polls this table and shows pending requests prominently.
+    If summary is provided, use it directly; otherwise generate from conversation.
     """
     # Pull session context
     visit_id = st.session_state.get("visit_id")
     phone = st.session_state.get("customer_phone")
     table_num = st.session_state.get("table_number")
 
-    # Generate brief AI summary for staff
-    summary = summarize_for_staff(reason)
+    # Use provided summary or generate from conversation
+    if not summary:
+        summary = summarize_for_staff(reason)
 
     try:
-        conn = sqlite3.connect("game_library.db")
+        conn = sqlite3.connect(DB_PATH)
         conn.execute("""
             INSERT INTO staff_requests
                 (visit_id, phone, table_number, game_title, question, reason)
@@ -1442,11 +1444,16 @@ def open_order_dialog():
 
                 transmit_order_to_sheet(order_id, st.session_state.customer_phone,
                                         items_json, deals_json, subtotal, total)
+                # Build condensed order summary for staff ping
+                order_summary_short = ", ".join(
+                    f"{item.get('qty', 1)}x {item['name']}" for item in cart
+                )[:80]
                 send_staff_ping(
                     table_id=f"Table {table_num}" if table_num else "Unknown",
                     game_title=st.session_state.current_game or "N/A",
                     question="New food/drink order placed",
-                    reason="food_order"
+                    reason="food_order",
+                    summary=f"Order: {order_summary_short}"
                 )
 
                 order_placed_text = ui.get("order_placed", "Order placed!")
