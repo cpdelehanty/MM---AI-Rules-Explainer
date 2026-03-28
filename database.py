@@ -276,6 +276,22 @@ def init_database():
         )
     """)
 
+    # Staff requests table (staff pings from customers)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS staff_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            visit_id TEXT,
+            phone TEXT,
+            table_number INTEGER,
+            game_title TEXT,
+            question TEXT,
+            reason TEXT DEFAULT 'rules_question',
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            acknowledged_at TIMESTAMP
+        )
+    """)
+
     # Create index for faster lookups
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_game_id ON chunks(game_id)

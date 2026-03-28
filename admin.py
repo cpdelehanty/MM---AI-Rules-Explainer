@@ -12,7 +12,7 @@ import json
 import sqlite3
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from database import init_database, DB_PATH
+from database import init_database, DB_PATH, get_all_games
 from user_store import get_customer
 
 load_dotenv()
@@ -264,8 +264,45 @@ def get_daily_stats():
     stats["occupied_tables"] = row["cnt"]
     stats["total_tables"] = TOTAL_TABLES
 
+    row = conn.execute("""
+        SELECT COUNT(*) as cnt FROM staff_requests
+        WHERE status = 'pending'
+    """).fetchone()
+    stats["pending_pings"] = row["cnt"]
+
     conn.close()
     return stats
+
+
+def get_pending_staff_requests():
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM staff_requests
+        WHERE status = 'pending'
+        ORDER BY created_at DESC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def acknowledge_staff_request(request_id):
+    conn = get_db()
+    conn.execute("""
+        UPDATE staff_requests SET status='acknowledged',
+            acknowledged_at=CURRENT_TIMESTAMP
+        WHERE id=?
+    """, (request_id,))
+    conn.commit()
+    conn.close()
+
+
+def assign_game_to_session(visit_id, game_title):
+    conn = get_db()
+    conn.execute("""
+        UPDATE active_sessions SET current_game=? WHERE visit_id=?
+    """, (game_title, visit_id))
+    conn.commit()
+    conn.close()
 
 
 # --- Auth ---
@@ -290,6 +327,75 @@ def check_admin_auth():
 
 
 # --- Main UI ---
+
+REASON_ICONS = {
+    "rules_question": "📖",
+    "food_order": "🍽️",
+    "new_game": "🎮",
+    "general_help": "🙋",
+}
+
+
+def render_staff_pings():
+    """Show pending staff requests as prominent alert banners."""
+    requests = get_pending_staff_requests()
+    if not requests:
+        return
+
+    st.markdown(
+        f"""<div style="background:#b91c1c; color:#fff; padding:10px 16px;
+        border-radius:8px; margin-bottom:12px; font-weight:bold; font-size:1.1em;">
+        🔔 {len(requests)} pending staff request{'s' if len(requests) != 1 else ''}
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    for req in requests:
+        rid = req["id"]
+        reason = req.get("reason", "general_help")
+        icon = REASON_ICONS.get(reason, "🔔")
+        phone = req.get("phone", "")
+        display_phone = f"...{phone[-4:]}" if phone and len(phone) >= 4 else phone or "?"
+        table = req.get("table_number")
+        game = req.get("game_title") or ""
+        question = req.get("question", "")[:80]
+        created = req.get("created_at", "")
+
+        try:
+            created_dt = datetime.fromisoformat(created)
+            elapsed = datetime.now() - created_dt
+            mins = int(elapsed.total_seconds()) // 60
+            if mins < 1:
+                time_str = "just now"
+            elif mins < 60:
+                time_str = f"{mins}m ago"
+            else:
+                time_str = f"{mins // 60}h {mins % 60}m ago"
+        except (ValueError, TypeError):
+            time_str = "?"
+
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.markdown(
+                f"""<div style="background:#7f1d1d; color:#fff; padding:10px 14px;
+                border-radius:8px; margin-bottom:6px;">
+                {icon} <b>{reason.replace('_', ' ').title()}</b> —
+                📱 {display_phone} ·
+                🪑 Table {table or '?'} ·
+                🎮 {game or 'N/A'} ·
+                ⏱️ {time_str}<br>
+                <span style="color:#fca5a5;">{question}</span>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+        with col2:
+            st.markdown("")  # spacer for vertical alignment
+            if st.button("✅ Acknowledge", key=f"ack_{rid}", use_container_width=True):
+                acknowledge_staff_request(rid)
+                st.rerun()
+
+    st.divider()
+
 
 def render_floor_view():
     """Table map and management."""
@@ -321,7 +427,7 @@ def render_floor_view():
                     time_str = "?"
 
                 st.markdown(
-                    f"""<div style="background:#2d5016; border-radius:10px; padding:12px;
+                    f"""<div style="background:#2d5016; color:#fff; border-radius:10px; padding:12px;
                     margin-bottom:8px; border: 2px solid #4a8c1c;">
                     <b>Table {tnum}</b> 🟢<br>
                     📱 {phone[-4:] if phone and len(phone) >= 4 else '?'}<br>
@@ -331,7 +437,7 @@ def render_floor_view():
                 )
             else:
                 st.markdown(
-                    f"""<div style="background:#1a1a2e; border-radius:10px; padding:12px;
+                    f"""<div style="background:#1a1a2e; color:#ccc; border-radius:10px; padding:12px;
                     margin-bottom:8px; border: 2px solid #333;">
                     <b>Table {tnum}</b> ⚪<br>
                     <span style="color:#888;">Available</span><br>
@@ -384,13 +490,18 @@ def render_floor_view():
 
 
 def render_sessions_view():
-    """Active sessions monitor."""
+    """Active sessions monitor with assign controls."""
     st.subheader("📡 Active Sessions")
 
     sessions = get_active_sessions()
     if not sessions:
         st.info("No active sessions right now.")
         return
+
+    tables = get_tables()
+    avail_tables = [t["table_number"] for t in tables if t["status"] == "available"]
+    all_games = get_all_games()
+    game_titles = ["(none)"] + [g["title"] for g in all_games]
 
     for session in sessions:
         visit_id = session["visit_id"]
@@ -419,23 +530,55 @@ def render_sessions_view():
         except (ValueError, TypeError):
             idle_str = "?"
 
-        col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 2, 1])
-        with col1:
-            display_phone = f"...{phone[-4:]}" if phone and len(phone) >= 4 else phone
-            st.markdown(f"📱 **{display_phone}**")
-        with col2:
-            st.markdown(f"🪑 Table {table or '?'}")
-        with col3:
-            st.markdown(f"⏱️ {time_str}")
-        with col4:
-            st.markdown(f"🎮 {game or 'No game'} · Last: {idle_str}")
-        with col5:
-            if st.button("End Session", key=f"kill_{visit_id}", type="primary"):
+        display_phone = f"...{phone[-4:]}" if phone and len(phone) >= 4 else phone
+        header = f"📱 {display_phone} · 🪑 Table {table or '?'} · ⏱️ {time_str} · 🎮 {game or 'No game'} · Last: {idle_str}"
+
+        with st.expander(header, expanded=False):
+            # Assign table
+            st.markdown("**Assign Table**")
+            if table:
+                st.caption(f"Currently at Table {table}")
+            if avail_tables:
+                tcol1, tcol2, tcol3 = st.columns([1, 1, 1])
+                with tcol1:
+                    sel_table = st.selectbox("Table", avail_tables,
+                                              key=f"sess_tbl_{visit_id}")
+                with tcol2:
+                    party_size = st.number_input("Party size", min_value=1,
+                                                  max_value=20, value=2,
+                                                  key=f"sess_party_{visit_id}")
+                with tcol3:
+                    st.markdown("")  # spacer
+                    if st.button("Assign Table", key=f"sess_assign_{visit_id}",
+                                  use_container_width=True):
+                        seat_table(sel_table, phone or "walk-in", party_size)
+                        link_session_to_table(visit_id, sel_table)
+                        st.success(f"Assigned to Table {sel_table}")
+                        st.rerun()
+            else:
+                st.caption("No available tables")
+
+            st.markdown("**Assign Game**")
+            gcol1, gcol2 = st.columns([2, 1])
+            with gcol1:
+                current_idx = game_titles.index(game) if game in game_titles else 0
+                sel_game = st.selectbox("Game", game_titles, index=current_idx,
+                                         key=f"sess_game_{visit_id}")
+            with gcol2:
+                st.markdown("")  # spacer
+                if st.button("Set Game", key=f"sess_setgame_{visit_id}",
+                              use_container_width=True):
+                    new_game = sel_game if sel_game != "(none)" else None
+                    assign_game_to_session(visit_id, new_game)
+                    st.success(f"Game set to {new_game or 'none'}")
+                    st.rerun()
+
+            st.divider()
+            if st.button("End Session", key=f"kill_{visit_id}", type="primary",
+                          use_container_width=True):
                 kill_session(visit_id)
                 st.success(f"Session ended for {display_phone}")
                 st.rerun()
-
-        st.divider()
 
 
 def render_orders_view():
@@ -562,17 +705,19 @@ def render_stats_view():
 
     stats = get_daily_stats()
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
-        st.metric("Active Sessions", stats["active_sessions"])
+        st.metric("Staff Pings", stats.get("pending_pings", 0))
     with col2:
+        st.metric("Active Sessions", stats["active_sessions"])
+    with col3:
         st.metric("Tables Occupied",
                    f"{stats['occupied_tables']}/{stats['total_tables']}")
-    with col3:
-        st.metric("Total Orders", stats["total_orders"])
     with col4:
-        st.metric("Pending Orders", stats["pending_orders"])
+        st.metric("Total Orders", stats["total_orders"])
     with col5:
+        st.metric("Pending Orders", stats["pending_orders"])
+    with col6:
         st.metric("Revenue Today", f"${stats['total_revenue']:.2f}")
 
     # Recent security events
@@ -606,6 +751,9 @@ def run_admin_dashboard():
         return
 
     st.title("🎲 Merry Meeple — Staff Dashboard")
+
+    # Staff ping alerts (prominent, before everything else)
+    render_staff_pings()
 
     # Top-level stats
     render_stats_view()

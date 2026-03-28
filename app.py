@@ -277,54 +277,28 @@ Only extract what is explicitly stated. Do not infer."""
 
 def send_staff_ping(table_id, game_title, question, reason="rules_question"):
     """
-    Send notification to staff (STUB - to be implemented)
-    
-    Args:
-        table_id: Table number/identifier
-        game_title: Current game being played
-        question: Customer's question
-        reason: Type of request (rules_question, new_game, food_order, general_help)
-    
-    Returns:
-        dict with success status and message
-    
-    TODO: Implement actual notification:
-    - Option 1: Email to staff (SendGrid, AWS SES)
-    - Option 2: SMS to on-duty staff (Twilio)
-    - Option 3: Push to staff dashboard (WebSocket/polling)
-    - Option 4: Slack notification to #cafe-assistance channel
+    Send notification to staff by writing to staff_requests table.
+    Staff dashboard polls this table and shows pending requests prominently.
     """
-    # STUB: For now, just log and return success
+    # Pull session context
+    visit_id = st.session_state.get("visit_id")
+    phone = st.session_state.get("customer_phone")
+    table_num = st.session_state.get("table_number")
+
+    try:
+        conn = sqlite3.connect("game_library.db")
+        conn.execute("""
+            INSERT INTO staff_requests
+                (visit_id, phone, table_number, game_title, question, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (visit_id, phone, table_num, game_title, question, reason))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[STAFF PING] DB error: {e}")
+
     print(f"[STAFF PING] Table: {table_id}, Game: {game_title}, Reason: {reason}")
-    print(f"[STAFF PING] Question: {question}")
-    
-    # TODO: Replace with actual implementation
-    # Example future implementations:
-    
-    # Email:
-    # send_email(
-    #     to="staff@merrymeeple.com",
-    #     subject=f"Customer Assistance Needed - Table {table_id}",
-    #     body=f"Game: {game_title}\nQuestion: {question}"
-    # )
-    
-    # SMS:
-    # twilio_client.messages.create(
-    #     to="+1234567890",
-    #     from_="+0987654321",
-    #     body=f"Table {table_id} needs help with {game_title}: {question[:100]}"
-    # )
-    
-    # Database:
-    # db.staff_requests.insert({
-    #     'timestamp': datetime.now(),
-    #     'table_id': table_id,
-    #     'game': game_title,
-    #     'question': question,
-    #     'reason': reason,
-    #     'status': 'pending'
-    # })
-    
+
     return {
         "success": True,
         "message": "Staff notified! Someone will be with you shortly."
@@ -1313,6 +1287,18 @@ def open_order_dialog():
                 st.session_state.dialog_view = "menu"
                 st.rerun(scope="fragment")
 
+        # Table number gate — require before placing order
+        if not st.session_state.get("table_number"):
+            st.info("📍 What table are you at? Check the table number sticker on your table.")
+            tbl_input = st.number_input("Table number", min_value=1, max_value=99,
+                                         step=1, key="order_table_input")
+            if st.button("Set table number", use_container_width=True, key="set_table_order"):
+                st.session_state.table_number = int(tbl_input)
+                register_session(st.session_state.visit_id,
+                                 st.session_state.customer_phone,
+                                 st.session_state.table_number)
+                st.rerun(scope="fragment")
+
         col_back, col_confirm = st.columns(2)
         with col_back:
             if st.button(f"⬅️ {ui.get('go_back', 'Go Back')}", use_container_width=True, key="confirm_back"):
@@ -1321,6 +1307,8 @@ def open_order_dialog():
         with col_confirm:
             if not cart:
                 st.warning(ui.get("cart_empty_error", "Your cart is empty."))
+            elif not st.session_state.get("table_number"):
+                st.warning("Please set your table number above to place your order.")
             elif st.button(f"✅ {ui.get('confirm_order_btn', 'Confirm Order')}", use_container_width=True, type="primary", key="confirm_place"):
                 subtotal = get_cart_subtotal(cart)
                 # Recalculate discount server-side (upsell items excluded)
@@ -2035,35 +2023,65 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             if message["role"] == "assistant" and "request staff assistance" in message["content"].lower():
                 # Show staff request button only if not already requested for this message
                 if message.get("staff_requested") != True:
-                    col1, col2, col3 = st.columns([1, 1, 3])
-                    with col1:
-                        if st.button("📞 Yes, get help", key=f"staff_yes_{idx}"):
-                            # Send staff ping
-                            result = send_staff_ping(
-                                table_id="Unknown",  # TODO: Get from session/login
-                                game_title=st.session_state.current_game or "Unknown",
-                                question=st.session_state.last_question or "Help requested",
-                                reason="rules_question"
-                            )
-                            
-                            # Mark as requested
-                            st.session_state.messages[idx]["staff_requested"] = True
-                            
-                            # Add confirmation message
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": "✅ " + result["message"]
-                            })
-                            st.rerun()
-                    
-                    with col2:
-                        if st.button("📖 Check manual", key=f"staff_no_{idx}"):
-                            st.session_state.messages[idx]["staff_requested"] = "declined"
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": "No problem! The physical rulebook at your table might have more details, or feel free to wave down a staff member anytime."
-                            })
-                            st.rerun()
+                    # If we're waiting for table number for this ping
+                    if st.session_state.get("_ping_needs_table") == idx:
+                        st.info("📍 What table are you at? Check the table number sticker on your table.")
+                        pcol1, pcol2 = st.columns([1, 1])
+                        with pcol1:
+                            tbl_val = st.number_input("Table number", min_value=1,
+                                                       max_value=99, step=1,
+                                                       key=f"ping_tbl_{idx}")
+                        with pcol2:
+                            st.markdown("")  # spacer
+                            if st.button("Submit", key=f"ping_tbl_go_{idx}",
+                                          use_container_width=True):
+                                st.session_state.table_number = int(tbl_val)
+                                register_session(st.session_state.visit_id,
+                                                 st.session_state.customer_phone,
+                                                 st.session_state.table_number)
+                                st.session_state._ping_needs_table = None
+                                # Now send the ping
+                                result = send_staff_ping(
+                                    table_id=f"Table {st.session_state.table_number}",
+                                    game_title=st.session_state.current_game or "Unknown",
+                                    question=st.session_state.last_question or "Help requested",
+                                    reason="rules_question"
+                                )
+                                st.session_state.messages[idx]["staff_requested"] = True
+                                st.session_state.messages.append({
+                                    "role": "assistant",
+                                    "content": "✅ " + result["message"]
+                                })
+                                st.rerun()
+                    else:
+                        col1, col2, col3 = st.columns([1, 1, 3])
+                        with col1:
+                            if st.button("📞 Yes, get help", key=f"staff_yes_{idx}"):
+                                if not st.session_state.get("table_number"):
+                                    st.session_state._ping_needs_table = idx
+                                    st.rerun()
+                                else:
+                                    result = send_staff_ping(
+                                        table_id=f"Table {st.session_state.table_number}",
+                                        game_title=st.session_state.current_game or "Unknown",
+                                        question=st.session_state.last_question or "Help requested",
+                                        reason="rules_question"
+                                    )
+                                    st.session_state.messages[idx]["staff_requested"] = True
+                                    st.session_state.messages.append({
+                                        "role": "assistant",
+                                        "content": "✅ " + result["message"]
+                                    })
+                                    st.rerun()
+
+                        with col2:
+                            if st.button("📖 Check manual", key=f"staff_no_{idx}"):
+                                st.session_state.messages[idx]["staff_requested"] = "declined"
+                                st.session_state.messages.append({
+                                    "role": "assistant",
+                                    "content": "No problem! The physical rulebook at your table might have more details, or feel free to wave down a staff member anytime."
+                                })
+                                st.rerun()
                 
                 elif message.get("staff_requested") == True:
                     st.success("✅ Staff has been notified")
