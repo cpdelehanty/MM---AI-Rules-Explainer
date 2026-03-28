@@ -388,6 +388,25 @@ def send_staff_ping(table_id, game_title, question, reason="rules_question", sum
 
 import re
 
+STAFF_PING_RE = re.compile(r'\[STAFF_PING:(\w+)\]')
+
+
+def process_staff_ping_tags(text):
+    """Strip [STAFF_PING:reason] tags from AI response and fire pings."""
+    match = STAFF_PING_RE.search(text)
+    if match:
+        reason = match.group(1)
+        cleaned = STAFF_PING_RE.sub("", text).strip()
+        send_staff_ping(
+            table_id=f"Table {st.session_state.get('table_number', '?')}",
+            game_title=st.session_state.get("current_game") or "N/A",
+            question="AI-triggered ping",
+            reason=reason
+        )
+        return cleaned, True
+    return text, False
+
+
 # Regex patterns for order tags
 ORDER_ADD_RE = re.compile(r'\[ORDER_ADD:([^|]+)\|(\d+)\]')
 ORDER_REMOVE_RE = re.compile(r'\[ORDER_REMOVE:([^\]]+)\]')
@@ -784,6 +803,9 @@ Rules for answering:
 - Never make up rules that aren't in the source documents
 - NEVER say you've notified staff unless the customer clicked the actual button
 
+STAFF NOTIFICATION:
+When the situation clearly requires a staff member to come to the table (emergencies, injuries, spills, complaints, explicit "get me a staff member" requests, or anything you can't resolve through chat), include the tag [STAFF_PING:general_help] at the END of your response. This silently notifies staff — you should still respond empathetically to the customer. Only use this for situations where staff MUST come to the table, not for routine rules questions.
+
 SOURCE DOCUMENTS FOR {game_title.upper()}:
 {context}
 
@@ -957,6 +979,9 @@ Do NOT roleplay physical actions (e.g. "slides over menu", "hands you a card"). 
 
 If the customer is asking about the menu or games, give a full answer. Otherwise keep your response brief (1-3 sentences).
 End with a helpful "What else can I help with?" rather than always pushing them to pick a game.
+
+STAFF NOTIFICATION:
+When the situation clearly requires a staff member to come to the table (emergencies, injuries, spills, complaints, explicit "get me a staff member" requests, or anything you can't resolve through chat), include the tag [STAFF_PING:general_help] at the END of your response. This silently notifies staff — you should still respond empathetically to the customer. Only use this for situations where staff MUST come to the table, not for routine questions.
 
 ORDERING:
 When a customer wants to order food or drinks, tell them to tap the "🛒 Order" button to browse the menu and place their order.
@@ -2343,14 +2368,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                     eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
                 )
                 # Check for food order staff ping (legacy)
-                if "[STAFF_PING:food_order]" in response:
-                    response = response.replace("[STAFF_PING:food_order]", "").strip()
-                    send_staff_ping(
-                        table_id="Unknown",
-                        game_title=st.session_state.current_game or "N/A",
-                        question="Customer ready to order food/drinks",
-                        reason="food_order"
-                    )
+                response, _ = process_staff_ping_tags(response)
                 # Simulate streaming for cached responses
                 if is_cached_response:
                     def _stream_cached(text, chunk_size=8):
@@ -2419,14 +2437,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                             answer, st.session_state.cart, st.session_state.deals_applied,
                             eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
                         )
-                        if "[STAFF_PING:food_order]" in answer:
-                            answer = answer.replace("[STAFF_PING:food_order]", "").strip()
-                            send_staff_ping(
-                                table_id="Unknown",
-                                game_title=detected_game,
-                                question="Customer ready to order food/drinks",
-                                reason="food_order"
-                            )
+                        answer, _ = process_staff_ping_tags(answer)
                         st.session_state.last_answer_meta = {'sources_used': sources_used}
                         if pages:
                             st.caption(f"📄 {ui.get('pages', 'Pages')}: {', '.join(map(str, pages))}")
@@ -2479,14 +2490,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                         answer, st.session_state.cart, st.session_state.deals_applied,
                         eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
                     )
-                    if "[STAFF_PING:food_order]" in answer:
-                        answer = answer.replace("[STAFF_PING:food_order]", "").strip()
-                        send_staff_ping(
-                            table_id="Unknown",
-                            game_title=st.session_state.current_game or "N/A",
-                            question="Customer ready to order food/drinks",
-                            reason="food_order"
-                        )
+                    answer, _ = process_staff_ping_tags(answer)
                     st.session_state.last_answer_meta = {'sources_used': sources_used}
 
                     if pages:
@@ -2532,14 +2536,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                         response, st.session_state.cart, st.session_state.deals_applied,
                         eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
                     )
-                    if "[STAFF_PING:food_order]" in response:
-                        response = response.replace("[STAFF_PING:food_order]", "").strip()
-                        send_staff_ping(
-                            table_id="Unknown",
-                            game_title=st.session_state.current_game or "N/A",
-                            question="Customer ready to order food/drinks",
-                            reason="food_order"
-                        )
+                    response, _ = process_staff_ping_tags(response)
 
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -2575,14 +2572,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                     answer, st.session_state.cart, st.session_state.deals_applied,
                     eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
                 )
-                if "[STAFF_PING:food_order]" in answer:
-                    answer = answer.replace("[STAFF_PING:food_order]", "").strip()
-                    send_staff_ping(
-                        table_id="Unknown",
-                        game_title=st.session_state.current_game or "N/A",
-                        question="Customer ready to order food/drinks",
-                        reason="food_order"
-                    )
+                answer, _ = process_staff_ping_tags(answer)
                 st.session_state.last_answer_meta = {'sources_used': sources_used}
 
                 if pages:
