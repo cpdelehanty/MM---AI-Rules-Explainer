@@ -7,6 +7,7 @@ import streamlit as st
 import os
 import uuid
 import json
+import sqlite3
 import numpy as np
 import time as _time
 from anthropic import Anthropic, APIStatusError
@@ -37,6 +38,104 @@ load_dotenv()
 
 # Configuration
 TOP_K_RESULTS = 5
+
+
+# --- Admin integration (session tracking + kill check) ---
+
+def register_session(visit_id, phone, table_number=None):
+    """Register an active session in the admin DB."""
+    try:
+        conn = sqlite3.connect("game_library.db")
+        conn.execute("""
+            INSERT OR REPLACE INTO active_sessions
+                (visit_id, phone, table_number, started_at, last_activity, status)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'active')
+        """, (visit_id, phone, table_number))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[SESSION] Error registering: {e}")
+
+
+def update_session_activity(visit_id, current_game=None):
+    """Update last_activity timestamp and current game."""
+    try:
+        conn = sqlite3.connect("game_library.db")
+        if current_game:
+            conn.execute("""
+                UPDATE active_sessions SET last_activity=CURRENT_TIMESTAMP,
+                    current_game=? WHERE visit_id=?
+            """, (current_game, visit_id))
+        else:
+            conn.execute("""
+                UPDATE active_sessions SET last_activity=CURRENT_TIMESTAMP
+                WHERE visit_id=?
+            """, (visit_id,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[SESSION] Error updating: {e}")
+
+
+def is_session_killed(visit_id):
+    """Check if a session has been killed by staff."""
+    try:
+        conn = sqlite3.connect("game_library.db")
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("""
+            SELECT status FROM active_sessions WHERE visit_id=?
+        """, (visit_id,)).fetchone()
+        conn.close()
+        return row and row["status"] == "killed"
+    except Exception:
+        return False
+
+
+def end_session(visit_id):
+    """Mark session as ended (customer left)."""
+    try:
+        conn = sqlite3.connect("game_library.db")
+        conn.execute("""
+            UPDATE active_sessions SET status='ended',
+                killed_at=CURRENT_TIMESTAMP WHERE visit_id=?
+        """, (visit_id,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[SESSION] Error ending: {e}")
+
+
+def save_order_to_queue(order_id, phone, visit_id, table_number, items_json,
+                         subtotal, discount, tax, total):
+    """Save order to admin order queue."""
+    try:
+        conn = sqlite3.connect("game_library.db")
+        conn.execute("""
+            INSERT INTO order_queue
+                (order_id, phone, visit_id, table_number, items,
+                 subtotal, discount, tax, total, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+        """, (order_id, phone, visit_id, table_number, items_json,
+              subtotal, discount, tax, total))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[ORDER QUEUE] Error saving: {e}")
+
+
+def get_table_for_phone(phone):
+    """Look up which table a phone is seated at."""
+    try:
+        conn = sqlite3.connect("game_library.db")
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("""
+            SELECT table_number FROM tables
+            WHERE phone=? AND status='occupied'
+        """, (phone,)).fetchone()
+        conn.close()
+        return row["table_number"] if row else None
+    except Exception:
+        return None
 
 PREFERENCE_KEYWORDS = [
     "allergic", "allergy", "vegetarian", "vegan", "gluten", "dairy",
@@ -1234,10 +1333,20 @@ def open_order_dialog():
 
                 save_order(order_id, st.session_state.customer_phone,
                            st.session_state.visit_id, items_json, subtotal, deals_json, total)
+
+                # Save to admin order queue with table info
+                table_num = st.session_state.get("table_number") or get_table_for_phone(
+                    st.session_state.customer_phone)
+                save_order_to_queue(
+                    order_id, st.session_state.customer_phone,
+                    st.session_state.visit_id, table_num, items_json,
+                    subtotal, discount, tax, total
+                )
+
                 transmit_order_to_sheet(order_id, st.session_state.customer_phone,
                                         items_json, deals_json, subtotal, total)
                 send_staff_ping(
-                    table_id="Unknown",
+                    table_id=f"Table {table_num}" if table_num else "Unknown",
                     game_title=st.session_state.current_game or "N/A",
                     question="New food/drink order placed",
                     reason="food_order"
@@ -1664,6 +1773,7 @@ def main():
                     st.session_state.customer_profile["language_preference"] = login_lang
                 st.session_state.visit_id = str(uuid.uuid4())
                 st.session_state.is_returning = False
+                register_session(st.session_state.visit_id, "ANON")
                 st.rerun()
             elif phone_input.strip():
                 normalized = normalize_phone(phone_input)
@@ -1690,13 +1800,36 @@ def main():
                         st.session_state.customer_phone = normalized
                         st.session_state.visit_id = str(uuid.uuid4())
                         log_visit(normalized, st.session_state.visit_id)
+
+                        # Register session and auto-link to table if seated
+                        table_num = get_table_for_phone(normalized)
+                        register_session(st.session_state.visit_id, normalized, table_num)
+                        if table_num:
+                            st.session_state.table_number = table_num
                     st.rerun()
             else:
                 st.error(t.get("error_empty", "Please enter your phone number or 999 to continue as a guest."))
 
         return  # Nothing else renders until phone is entered
 
+    # --- Check for killed session ---
+    if st.session_state.visit_id and is_session_killed(st.session_state.visit_id):
+        st.title("🎲 The Merry Meeple")
+        st.warning("Your session has been ended by staff. Please check with a staff member if you need assistance.")
+        if st.button("Start New Session", use_container_width=True):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+        return
+
     # --- Main app (after phone gate) ---
+
+    # Update session activity heartbeat
+    if st.session_state.visit_id:
+        update_session_activity(
+            st.session_state.visit_id,
+            st.session_state.get("current_game")
+        )
 
     # Get translated UI strings for non-English users
     current_lang = (st.session_state.customer_profile or {}).get("language_preference", "English")
@@ -1807,6 +1940,8 @@ def main():
         st.session_state.detail_item = None
     if 'games_this_session' not in st.session_state:
         st.session_state.games_this_session = []
+    if 'table_number' not in st.session_state:
+        st.session_state.table_number = None
 
     # Build deals, events, and cart context (evaluated per-request, after session state init)
     customer_profile_for_deals = None
