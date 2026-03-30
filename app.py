@@ -154,18 +154,24 @@ def get_table_for_phone(phone):
 
 def claim_table(visit_id, phone, table_num):
     """Link a customer session to a table. Marks the table occupied if not already.
-    Multiple sessions can share the same table (e.g. a group where each person logs in)."""
+    Multiple sessions can share the same table (e.g. a group where each person logs in).
+    Returns False if the table number doesn't exist in the floor plan."""
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
+        # Verify table exists
+        tbl = conn.execute("""
+            SELECT status, party_size FROM tables WHERE table_number=?
+        """, (table_num,)).fetchone()
+        if not tbl:
+            conn.close()
+            print(f"[TABLE] Table {table_num} does not exist in floor plan")
+            return False
         # Update this session's table number
         conn.execute("""
             UPDATE active_sessions SET table_number=? WHERE visit_id=?
         """, (table_num, visit_id))
         # Mark table occupied if not already
-        tbl = conn.execute("""
-            SELECT status, party_size FROM tables WHERE table_number=?
-        """, (table_num,)).fetchone()
         if tbl:
             if tbl["status"] != "occupied":
                 conn.execute("""
@@ -182,8 +188,10 @@ def claim_table(visit_id, phone, table_num):
             """, (max(count, 1), table_num))
         conn.commit()
         conn.close()
+        return True
     except Exception as e:
         print(f"[TABLE] Error claiming table: {e}")
+        return False
 
 
 PREFERENCE_KEYWORDS = [
@@ -392,14 +400,13 @@ STAFF_PING_RE = re.compile(r'\[STAFF_PING:(\w+)\]')
 
 
 def process_staff_ping_tags(text):
-    """Strip [STAFF_PING:reason] tags from AI response. Returns cleaned text
-    and the reason if a tag was found (ping is NOT sent automatically —
+    """Strip all [STAFF_PING:reason] tags from AI response. Returns cleaned text
+    and the first reason found (ping is NOT sent automatically —
     the chat display loop shows a confirm button instead)."""
-    match = STAFF_PING_RE.search(text)
-    if match:
-        reason = match.group(1)
+    matches = STAFF_PING_RE.findall(text)
+    if matches:
         cleaned = STAFF_PING_RE.sub("", text).strip()
-        return cleaned, reason
+        return cleaned, matches[0]  # Return first reason for confirm button
     return text, None
 
 
@@ -434,8 +441,15 @@ def build_cart_context(cart, deals_applied):
 
 
 def get_cart_subtotal(cart):
-    """Calculate cart subtotal from items."""
-    return sum(item["price"] * item.get("qty", 1) for item in cart)
+    """Calculate cart subtotal from items. Sanitizes price strings and clamps qty >= 0."""
+    total = 0
+    for item in cart:
+        price = item.get("price", 0)
+        if isinstance(price, str):
+            price = float(price.replace("$", "").strip() or 0)
+        qty = max(int(item.get("qty", 1) or 1), 0)
+        total += float(price) * qty
+    return total
 
 
 def process_order_tags(response_text, cart, deals_applied, eligible_deals, phone, visit_id):

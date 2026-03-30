@@ -428,11 +428,11 @@ class TestCartSubtotalEdgeCases:
         # Cart items without qty should be treated as qty=1
         assert get_cart_subtotal([{"price": 5.0}]) == 5.0
 
-    def test_string_price_crashes(self):
+    def test_string_price_sanitized(self):
         from app import get_cart_subtotal
-        # String prices should cause an error — catch it early
-        with pytest.raises((TypeError, ValueError)):
-            get_cart_subtotal([{"price": "$5", "qty": 1}])
+        # String prices like "$5" should be parsed correctly
+        assert get_cart_subtotal([{"price": "$5", "qty": 1}]) == 5.0
+        assert get_cart_subtotal([{"price": "$10.50", "qty": 2}]) == 21.0
 
     def test_zero_price(self):
         from app import get_cart_subtotal
@@ -440,11 +440,11 @@ class TestCartSubtotalEdgeCases:
         cart = [{"price": 0, "qty": 1}, {"price": 10.0, "qty": 1}]
         assert get_cart_subtotal(cart) == 10.0
 
-    def test_negative_qty(self):
+    def test_negative_qty_clamped(self):
         from app import get_cart_subtotal
-        # Shouldn't happen, but if it does, subtotal goes negative
+        # Negative qty should be clamped to 0
         result = get_cart_subtotal([{"price": 10.0, "qty": -1}])
-        assert result == -10.0  # This IS what happens — worth knowing
+        assert result == 0  # Clamped to 0, not negative
 
 
 class TestStaffPingTagsEdgeCases:
@@ -495,8 +495,8 @@ class TestPhoneEdgeCases:
 
 
 class TestDealEvaluationEdgeCases:
-    def test_deal_with_zero_discount(self, test_db):
-        """A percent deal with 0% discount should still be 'eligible' but worthless."""
+    def test_deal_with_zero_discount_filtered(self, test_db):
+        """A percent deal with 0% discount should be filtered out as worthless."""
         from sync_deals import evaluate_deals
         conn = sqlite3.connect(test_db)
         conn.execute("""
@@ -505,8 +505,9 @@ class TestDealEvaluationEdgeCases:
         """)
         conn.commit()
         conn.close()
-        eligible, _ = evaluate_deals(None, 0)
-        assert any(d["deal_id"] == "ZERO_PCT" for d in eligible)
+        eligible, near_miss = evaluate_deals(None, 0)
+        all_ids = [d["deal_id"] for d in eligible + near_miss]
+        assert "ZERO_PCT" not in all_ids
 
     def test_deal_with_future_expiry(self, test_db):
         """Deal expiring next year should still be eligible."""
@@ -562,8 +563,8 @@ class TestUpsellEdgeCases:
 
 
 class TestClaimTableEdgeCases:
-    def test_claim_nonexistent_table(self, test_db):
-        """Claiming a table number that doesn't exist in the tables table."""
+    def test_claim_nonexistent_table_rejected(self, test_db):
+        """Claiming a table number that doesn't exist in the floor plan should fail."""
         conn = sqlite3.connect(test_db)
         conn.execute("INSERT INTO active_sessions (visit_id, phone, status) VALUES ('v99', 'p99', 'active')")
         conn.commit()
@@ -571,14 +572,15 @@ class TestClaimTableEdgeCases:
 
         from app import claim_table
         # Table 99 doesn't exist (we only seeded 1-12)
-        claim_table("v99", "p99", 99)
+        result = claim_table("v99", "p99", 99)
+        assert result is False
 
         conn = sqlite3.connect(test_db)
         conn.row_factory = sqlite3.Row
         sess = conn.execute("SELECT table_number FROM active_sessions WHERE visit_id='v99'").fetchone()
         conn.close()
-        # Session should still get the table number even if table row doesn't exist
-        assert sess["table_number"] == 99
+        # Session should NOT get a nonexistent table number
+        assert sess["table_number"] is None
 
 
 # ============================================================

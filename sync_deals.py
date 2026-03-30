@@ -629,6 +629,12 @@ def evaluate_deals(customer_profile=None, cart_subtotal=0):
             "free_item_id": deal.get("free_item_id", ""),
             "target_category": deal.get("target_category", ""),
         }
+        # Skip deals with no actual discount value (unless free_item)
+        dtype = deal_dict.get("discount_type", "")
+        dval = float(deal_dict.get("discount_value", 0) or 0)
+        if dtype != "free_item" and dval <= 0:
+            continue
+
         if len(failures) == 0:
             eligible.append(deal_dict)
         elif len(failures) == 1:
