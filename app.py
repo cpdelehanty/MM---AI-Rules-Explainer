@@ -245,6 +245,86 @@ def get_loading_message():
     """Return a random cute loading message"""
     return _random.choice(LOADING_MESSAGES)
 
+
+D20_SPINNER_CSS = """
+<style>
+@keyframes d20spin {
+    0%   { transform: rotate(0deg) scale(1); }
+    25%  { transform: rotate(90deg) scale(1.1); }
+    50%  { transform: rotate(180deg) scale(1); }
+    75%  { transform: rotate(270deg) scale(1.1); }
+    100% { transform: rotate(360deg) scale(1); }
+}
+@keyframes d20land {
+    0%   { transform: rotate(0deg) scale(1); }
+    40%  { transform: rotate(15deg) scale(1.3); }
+    70%  { transform: rotate(-5deg) scale(1.15); }
+    100% { transform: rotate(0deg) scale(1.2); }
+}
+@keyframes fadeUp {
+    0%   { opacity: 0; transform: translateY(8px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+.d20-container {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 1.5rem 0; gap: 0.75rem;
+}
+.d20-die {
+    font-size: 2.5rem; animation: d20spin 1s ease-in-out infinite;
+    display: inline-block;
+}
+.d20-die.landed {
+    animation: d20land 0.4s ease-out forwards;
+    font-size: 2.8rem;
+}
+.d20-msg {
+    font-size: 1rem; color: #6b7280; font-style: italic;
+    animation: fadeUp 0.3s ease-out;
+}
+.d20-nat20 {
+    font-size: 1.1rem; color: #d97706; font-weight: 600;
+    animation: fadeUp 0.3s ease-out;
+}
+</style>
+"""
+
+D20_SPINNER_HTML = """
+<div class="d20-container">
+    <div class="d20-die">🎲</div>
+    <div class="d20-msg">{message}</div>
+</div>
+"""
+
+D20_LANDED_HTML = """
+<div class="d20-container">
+    <div class="d20-die landed">🎲</div>
+    <div class="d20-nat20">Nat 20! Here we go...</div>
+</div>
+"""
+
+
+def show_d20_spinner(placeholder):
+    """Show the spinning D20 with a random loading message in a placeholder."""
+    msg = get_loading_message()
+    # Strip the emoji prefix from loading message (spinner has its own D20)
+    clean_msg = msg.split(" ", 1)[1] if " " in msg else msg
+    placeholder.markdown(
+        D20_SPINNER_CSS + D20_SPINNER_HTML.format(message=clean_msg),
+        unsafe_allow_html=True,
+    )
+    return placeholder
+
+
+def show_d20_landed(placeholder):
+    """Show the D20 landing on 20 briefly before revealing the answer."""
+    placeholder.markdown(
+        D20_SPINNER_CSS + D20_LANDED_HTML,
+        unsafe_allow_html=True,
+    )
+    _time.sleep(0.6)
+    placeholder.empty()
+
+
 def anthropic_create_with_retry(client, max_retries=3, **kwargs):
     """Call anthropic_client.messages.create with retry on overloaded (529) or rate-limit (429) errors.
 
@@ -2493,20 +2573,22 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 if has_question:
                     # Answer the question directly — skip the generic intro (streamed)
                     with st.chat_message("assistant"):
-                        with st.status(get_loading_message(), expanded=True, state="running"):
-                            api_kwargs, pages, sources_used = answer_question(
-                                prompt,
-                                detected_game,
-                                voyage_client,
-                                anthropic_client,
-                                menu_context,
-                                customer_context,
-                                language=current_lang,
-                                deals_context=deals_context,
-                                events_context=events_context,
-                                cart_context=cart_context,
-                                stream=True,
-                            )
+                        _d20 = st.empty()
+                        show_d20_spinner(_d20)
+                        api_kwargs, pages, sources_used = answer_question(
+                            prompt,
+                            detected_game,
+                            voyage_client,
+                            anthropic_client,
+                            menu_context,
+                            customer_context,
+                            language=current_lang,
+                            deals_context=deals_context,
+                            events_context=events_context,
+                            cart_context=cart_context,
+                            stream=True,
+                        )
+                        show_d20_landed(_d20)
                         answer = st.write_stream(
                             anthropic_stream_with_retry(anthropic_client, **api_kwargs)
                         )
@@ -2534,13 +2616,15 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 else:
                     # Just selecting a game — show intro
                     with st.chat_message("assistant"):
-                        with st.status(get_loading_message(), expanded=True, state="running"):
-                            intro_message = generate_game_intro(
-                                detected_game,
-                                voyage_client,
-                                anthropic_client,
-                                language=current_lang
-                            )
+                        _d20 = st.empty()
+                        show_d20_spinner(_d20)
+                        intro_message = generate_game_intro(
+                            detected_game,
+                            voyage_client,
+                            anthropic_client,
+                            language=current_lang
+                        )
+                        show_d20_landed(_d20)
                         st.markdown(escape_dollars(intro_message))
                     st.session_state.messages.append({"role": "assistant", "content": intro_message})
                     st.rerun()
@@ -2548,20 +2632,22 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             elif detected_game and detected_game == st.session_state.current_game:
                 # Same game detected - answer the question (streamed)
                 with st.chat_message("assistant"):
-                    with st.status(get_loading_message(), expanded=True, state="running"):
-                        api_kwargs, pages, sources_used = answer_question(
-                            prompt,
-                            st.session_state.current_game,
-                            voyage_client,
-                            anthropic_client,
-                            menu_context,
-                            customer_context,
-                            language=current_lang,
-                            deals_context=deals_context,
-                            events_context=events_context,
-                            cart_context=cart_context,
-                            stream=True,
-                        )
+                    _d20 = st.empty()
+                    show_d20_spinner(_d20)
+                    api_kwargs, pages, sources_used = answer_question(
+                        prompt,
+                        st.session_state.current_game,
+                        voyage_client,
+                        anthropic_client,
+                        menu_context,
+                        customer_context,
+                        language=current_lang,
+                        deals_context=deals_context,
+                        events_context=events_context,
+                        cart_context=cart_context,
+                        stream=True,
+                    )
+                    show_d20_landed(_d20)
                     answer = st.write_stream(
                         anthropic_stream_with_retry(anthropic_client, **api_kwargs)
                     )
@@ -2595,6 +2681,8 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             else:
                 # No game detected - general response (streamed)
                 with st.chat_message("assistant"):
+                    _d20 = st.empty()
+                    show_d20_spinner(_d20)
                     api_kwargs = generate_general_response(
                         prompt,
                         list(game_library.keys()),
@@ -2607,6 +2695,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                         cart_context=cart_context,
                         stream=True,
                     )
+                    show_d20_landed(_d20)
                     response = st.write_stream(
                         anthropic_stream_with_retry(anthropic_client, **api_kwargs)
                     )
@@ -2630,21 +2719,22 @@ Keep it to 1-2 sentences. Don't mention their phone number.
         else:
             # Game already selected and user isn't switching - answer about current game (streamed)
             with st.chat_message("assistant"):
-                # Embedding + chunk retrieval happens before streaming
-                with st.status(get_loading_message(), expanded=True, state="running"):
-                    api_kwargs, pages, sources_used = answer_question(
-                        prompt,
-                        st.session_state.current_game,
-                        voyage_client,
-                        anthropic_client,
-                        menu_context,
-                        customer_context,
-                        language=current_lang,
-                        deals_context=deals_context,
-                        events_context=events_context,
-                        cart_context=cart_context,
-                        stream=True,
-                    )
+                _d20 = st.empty()
+                show_d20_spinner(_d20)
+                api_kwargs, pages, sources_used = answer_question(
+                    prompt,
+                    st.session_state.current_game,
+                    voyage_client,
+                    anthropic_client,
+                    menu_context,
+                    customer_context,
+                    language=current_lang,
+                    deals_context=deals_context,
+                    events_context=events_context,
+                    cart_context=cart_context,
+                    stream=True,
+                )
+                show_d20_landed(_d20)
                 answer = st.write_stream(
                     anthropic_stream_with_retry(anthropic_client, **api_kwargs)
                 )
