@@ -1316,6 +1316,7 @@ def open_staff_ping_dialog():
                 "content": "✅ Staff has been notified! Someone will be with you shortly.",
             })
             st.session_state._pending_ping = None
+            st.session_state._ping_dialog_opened = False
             st.rerun()
     with col2:
         if st.button("No, I'm fine", use_container_width=True, key="ping_dialog_no"):
@@ -1324,6 +1325,7 @@ def open_staff_ping_dialog():
                 if st.session_state.messages[idx].get("staff_requested") is not None:
                     st.session_state.messages[idx]["staff_requested"] = "declined"
             st.session_state._pending_ping = None
+            st.session_state._ping_dialog_opened = False
             st.rerun()
 
 
@@ -2291,6 +2293,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
     if st.session_state.get("_staff_btn_needs_table"):
         st.session_state._staff_btn_needs_table = False
         st.session_state._pending_ping = {"idx": None, "reason": "general_help"}
+        st.session_state._ping_dialog_opened = False
         st.rerun()
 
     # Display chat history
@@ -2314,8 +2317,10 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 elif message.get("ping_confirmed") == True:
                     st.success("✅ Staff has been notified")
 
-    # Open staff ping confirmation dialog if pending
-    if st.session_state.get("_pending_ping"):
+    # Open staff ping dialog once per pending ping.
+    # _ping_dialog_opened prevents re-opening after user X's out.
+    if st.session_state.get("_pending_ping") and not st.session_state.get("_ping_dialog_opened"):
+        st.session_state._ping_dialog_opened = True
         open_staff_ping_dialog()
 
     # Quick-action buttons pinned in bottom bar, above chat input
@@ -2342,6 +2347,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
         with cols[3]:
             if st.button(f"🙋 {ui.get('get_staff', 'Get staff help')}", use_container_width=True, key="btn_staff"):
                 st.session_state._pending_ping = {"idx": None, "reason": "general_help"}
+                st.session_state._ping_dialog_opened = False
                 st.rerun()
 
     # Chat input (also in bottom bar, rendered after buttons)
@@ -2374,6 +2380,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 if st.session_state.messages[idx].get("staff_requested") is not None:
                     st.session_state.messages[idx]["staff_requested"] = "declined"
             st.session_state._pending_ping = None
+            st.session_state._ping_dialog_opened = False
 
         # Store the question for potential staff ping
         st.session_state.last_question = prompt
