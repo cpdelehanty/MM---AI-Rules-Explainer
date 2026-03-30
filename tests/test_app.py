@@ -120,6 +120,37 @@ class TestStaffPingTags:
         assert reason == "food_order"
 
 
+class TestDetectGame:
+    """Test fuzzy game detection (no LLM call needed for these)."""
+    GAMES = ["Catan", "Wingspan", "7 Wonders Duel", "Ticket To Ride", "Azul", "Streets"]
+
+    def test_exact_match(self):
+        from app import detect_game
+        assert detect_game("Let's play Catan", self.GAMES, None) == "Catan"
+
+    def test_case_insensitive(self):
+        from app import detect_game
+        assert detect_game("how does wingspan work?", self.GAMES, None) == "Wingspan"
+
+    def test_longer_title_preferred(self):
+        from app import detect_game
+        # "7 Wonders Duel" should match, not some partial "7 Wonders"
+        assert detect_game("tell me about 7 Wonders Duel", self.GAMES, None) == "7 Wonders Duel"
+
+    def test_no_game_mentioned(self):
+        from app import detect_game
+        assert detect_game("What's on the menu?", self.GAMES, None) is None
+
+    def test_partial_word_match(self):
+        from app import detect_game
+        # "azul" is a full word in the game list
+        assert detect_game("I want to play azul please", self.GAMES, None) == "Azul"
+
+    def test_food_question_no_match(self):
+        from app import detect_game
+        assert detect_game("Can I get a coffee?", self.GAMES, None) is None
+
+
 class TestStaleness:
     def test_none_is_stale(self):
         from sync_deals import _is_stale

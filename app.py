@@ -333,26 +333,17 @@ Only extract what is explicitly stated. Do not infer."""
         print(f"[PREFERENCE EXTRACTION] Error: {e}")
 
 def summarize_for_staff(reason="rules_question"):
-    """Generate a 6-word-or-less summary of the customer's issue from chat history."""
+    """Build a brief summary from the last user message. No LLM call needed."""
     messages = st.session_state.get("messages", [])
-    if not messages:
-        return "Unknown problem"
-
-    # Take last few messages for context
-    recent = messages[-6:]
-    convo = "\n".join(f"{m['role']}: {m['content'][:200]}" for m in recent)
-
-    try:
-        client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-        resp = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=30,
-            messages=[{"role": "user", "content": f"Summarize this customer's problem in 6 words or less for a staff member. If unclear, say 'Unknown problem'. No quotes or punctuation.\n\nReason: {reason}\n\nConversation:\n{convo}"}],
-        )
-        summary = resp.content[0].text.strip()[:60]
-        return summary or "Unknown problem"
-    except Exception:
-        return "Unknown problem"
+    # Find the last user message
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            # Truncate to ~60 chars, clean up
+            text = msg["content"].strip()[:60]
+            if len(msg["content"]) > 60:
+                text += "..."
+            return text
+    return "Help requested"
 
 
 def send_staff_ping(table_id, game_title, question, reason="rules_question", summary=None):
@@ -679,26 +670,49 @@ def get_translated_response(prompt_text, language):
 
 # Detect which game the user is asking about
 def detect_game(message, available_games, anthropic_client):
-    """Use Claude to detect which game the user is referring to"""
+    """Detect game from user message. Fast fuzzy match first, LLM fallback for ambiguous cases."""
+    msg_lower = message.lower()
+
+    # Fast path: exact or substring match against game titles
+    # Check longest titles first to avoid "7 Wonders" matching before "7 Wonders Duel"
+    sorted_games = sorted(available_games, key=len, reverse=True)
+    for game in sorted_games:
+        if game.lower() in msg_lower:
+            return game
+
+    # Fuzzy match: check for common abbreviations and partial matches
+    # Build a lookup of lowercase words → game
+    game_words = {}
+    for game in available_games:
+        # Each significant word (3+ chars) maps to its game
+        for word in game.lower().split():
+            if len(word) >= 3:
+                game_words[word] = game
+
+    msg_words = set(re.findall(r'\b\w{3,}\b', msg_lower))
+    matches = set()
+    for word in msg_words:
+        if word in game_words:
+            matches.add(game_words[word])
+
+    if len(matches) == 1:
+        return matches.pop()
+
+    # No match or ambiguous — fall back to LLM only if message looks game-related
+    game_signals = ["play", "rules", "setup", "set up", "how do", "how does",
+                    "what happens", "can i", "can you", "game", "board"]
+    if not any(s in msg_lower for s in game_signals):
+        return None
+
+    # LLM fallback for ambiguous cases
     game_list = ", ".join(available_games)
-    
-    prompt = f"""The user is at a board game cafe. They just said: "{message}"
+    prompt = f"""The user is at a board game cafe. They said: "{message}"
 
 Available games: {game_list}
 
-Which game are they referring to? Respond with ONLY the exact game title from the list, or "NONE" if they haven't mentioned a specific game yet.
-
-Examples:
-User: "We're playing Catan" → Catan
-User: "I need help with Wingspan setup" → Wingspan
-User: "How does Streets work?" → Streets
-User: "What games do you have?" → NONE
-User: "Can I get a coffee?" → NONE
+Which game are they referring to? Respond with ONLY the exact game title from the list, or "NONE".
 
 Game title:"""
-
-    if not prompt or not prompt.strip():
-        return None
 
     try:
         response = anthropic_create_with_retry(
@@ -707,15 +721,12 @@ Game title:"""
             max_tokens=50,
             messages=[{"role": "user", "content": prompt}]
         )
-
         detected = response.content[0].text.strip()
-
-        # Validate it's in our list
         if detected in available_games:
             return detected
         return None
     except Exception as e:
-        print(f"[DETECT GAME] Error: {e}")
+        print(f"[DETECT GAME] LLM fallback error: {e}")
         return None
 
 # Vector search
@@ -735,11 +746,22 @@ def search_chunks(query_embedding, chunks, top_k=TOP_K_RESULTS):
     similarities.sort(reverse=True, key=lambda x: x[0])
     return [chunk for _, chunk in similarities[:top_k]]
 
+_chunk_cache = {}  # Module-level cache: game_title → chunks list
+
+
+def get_cached_chunks(game_title):
+    """Load game chunks with in-memory caching. Avoids re-deserializing
+    embedding blobs from SQLite on every question for the same game."""
+    if game_title not in _chunk_cache:
+        _chunk_cache[game_title] = get_game_chunks(game_title)
+    return _chunk_cache[game_title]
+
+
 def answer_question(question, game_title, voyage_client, anthropic_client, menu_context="", customer_context="", language="English", deals_context="", events_context="", cart_context="", stream=False):
     """Generate answer to rules question"""
-    
-    # Load game chunks from database
-    chunks = get_game_chunks(game_title)
+
+    # Load game chunks (cached in memory)
+    chunks = get_cached_chunks(game_title)
     
     if not chunks:
         return "Sorry, I couldn't find the rulebook for this game in my library.", []
@@ -899,9 +921,9 @@ YOUR ANSWER:"""
 
 def generate_game_intro(game_title, voyage_client, anthropic_client, language="English"):
     """Generate a brief intro about the game from rulebook"""
-    
-    # Load game chunks from database
-    chunks = get_game_chunks(game_title)
+
+    # Load game chunks (cached in memory)
+    chunks = get_cached_chunks(game_title)
     
     if not chunks:
         return f"Great! Let's dive into **{game_title}**. What would you like to know?"
@@ -2078,15 +2100,20 @@ def main():
     # Sync deals, events, and auto-deal rules (cold start via cache)
     load_deals_and_events()
 
-    # Periodic re-sync check (every 15 min, outside cache)
-    if should_sync_deals():
-        sync_deals_from_sheets()
-    if should_sync_events():
-        sync_events_from_sheets()
-    if should_sync_auto_rules():
-        sync_auto_rules_from_sheets()
-    if should_sync_cart_upsells():
-        sync_cart_upsells_from_sheets()
+    # Periodic re-sync check (every 15 min) — cached in session state to avoid
+    # 4 DB queries on every Streamlit rerun. Re-checks once per minute.
+    import time as _sync_time
+    last_sync_check = st.session_state.get("_last_sync_check", 0)
+    if _sync_time.time() - last_sync_check > 60:
+        st.session_state._last_sync_check = _sync_time.time()
+        if should_sync_deals():
+            sync_deals_from_sheets()
+        if should_sync_events():
+            sync_events_from_sheets()
+        if should_sync_auto_rules():
+            sync_auto_rules_from_sheets()
+        if should_sync_cart_upsells():
+            sync_cart_upsells_from_sheets()
 
     # Initialize remaining session state
     if 'messages' not in st.session_state:
@@ -2388,8 +2415,13 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             with st.chat_message("user"):
                 st.markdown(prompt)
 
-        # Extract preferences from user message (non-blocking)
-        extract_preferences(prompt, anthropic_client, st.session_state.customer_phone)
+        # Extract preferences from user message (fire-and-forget background thread)
+        import threading
+        threading.Thread(
+            target=extract_preferences,
+            args=(prompt, anthropic_client, st.session_state.customer_phone),
+            daemon=True
+        ).start()
 
         # Check for prompt injection attempts (logs only, doesn't block)
         check_for_injection(prompt, st.session_state.customer_phone)
