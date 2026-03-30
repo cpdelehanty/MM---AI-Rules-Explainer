@@ -1253,6 +1253,76 @@ def _get_item_options(item, all_items):
     return []
 
 
+PING_REASON_LABELS = {
+    "rules_question": "Rules help",
+    "food_order": "Food & drink order",
+    "general_help": "General help",
+    "new_game": "New game request",
+}
+
+
+@st.dialog("Notify Staff?")
+def open_staff_ping_dialog():
+    """Modal confirmation for AI-suggested staff pings."""
+    pending = st.session_state.get("_pending_ping")
+    if not pending:
+        st.rerun()
+        return
+
+    idx = pending["idx"]
+    reason = pending["reason"]
+    label = PING_REASON_LABELS.get(reason, "Help")
+
+    st.markdown(f"The assistant thinks you could use some help: **{label}**")
+    st.markdown("Would you like us to send a staff member to your table?")
+
+    # Collect table number if missing
+    need_table = not st.session_state.get("table_number")
+    table_val = None
+    if need_table:
+        st.info("We'll need your table number first (check the sticker on your table).")
+        table_val = st.text_input("Table number", placeholder="e.g. 5", key="ping_dialog_table")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🚨 Yes, notify staff", use_container_width=True, key="ping_dialog_yes"):
+            if need_table:
+                try:
+                    tbl_num = int((table_val or "").strip())
+                    if not (1 <= tbl_num <= 99):
+                        st.error("Enter a number between 1 and 99.")
+                        return
+                    st.session_state.table_number = tbl_num
+                    claim_table(st.session_state.visit_id,
+                                st.session_state.customer_phone, tbl_num)
+                except (ValueError, AttributeError):
+                    st.error("Please enter a valid table number.")
+                    return
+
+            send_staff_ping(
+                table_id=f"Table {st.session_state.get('table_number', '?')}",
+                game_title=st.session_state.current_game or "N/A",
+                question="AI-suggested ping confirmed by customer",
+                reason=reason,
+            )
+            st.session_state.messages[idx]["ping_confirmed"] = True
+            if st.session_state.messages[idx].get("staff_requested") is not None:
+                st.session_state.messages[idx]["staff_requested"] = True
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "✅ Staff has been notified! Someone will be with you shortly.",
+            })
+            st.session_state._pending_ping = None
+            st.rerun()
+    with col2:
+        if st.button("No, I'm fine", use_container_width=True, key="ping_dialog_no"):
+            st.session_state.messages[idx]["ping_confirmed"] = False
+            if st.session_state.messages[idx].get("staff_requested") is not None:
+                st.session_state.messages[idx]["staff_requested"] = "declined"
+            st.session_state._pending_ping = None
+            st.rerun()
+
+
 @st.dialog("Order Food & Drinks", width="large")
 def open_order_dialog():
     """DoorDash-style ordering popup with category tabs, item detail, cart, and deals."""
@@ -2251,99 +2321,23 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             if "pages" in message and message["pages"]:
                 st.caption(f"📄 {ui.get('pages', 'Pages')}: {', '.join(map(str, message['pages']))}")
             
-            # Check if this message offers staff assistance
+            # Check if this message offers staff assistance (via dialog)
             if message["role"] == "assistant" and "request staff assistance" in message["content"].lower():
-                # Show staff request button only if not already requested for this message
-                if message.get("staff_requested") != True:
-                    # If we're waiting for table number for this ping
-                    if st.session_state.get("_ping_needs_table") == idx:
-                        st.info("📍 What table are you at? Check the table number sticker on your table.")
-                        with st.form(f"ping_tbl_form_{idx}"):
-                            tbl_val = st.text_input("Table number", placeholder="e.g. 5",
-                                                     key=f"ping_tbl_{idx}")
-                            if st.form_submit_button("Submit & notify staff",
-                                                      use_container_width=True):
-                                try:
-                                    tbl_num = int(tbl_val.strip())
-                                    if 1 <= tbl_num <= 99:
-                                        st.session_state.table_number = tbl_num
-                                        claim_table(st.session_state.visit_id,
-                                                    st.session_state.customer_phone,
-                                                    st.session_state.table_number)
-                                        st.session_state._ping_needs_table = None
-                                        result = send_staff_ping(
-                                            table_id=f"Table {st.session_state.table_number}",
-                                            game_title=st.session_state.current_game or "Unknown",
-                                            question=st.session_state.last_question or "Help requested",
-                                            reason="rules_question"
-                                        )
-                                        st.session_state.messages[idx]["staff_requested"] = True
-                                        st.session_state.messages.append({
-                                            "role": "assistant",
-                                            "content": "✅ " + result["message"]
-                                        })
-                                        st.rerun()
-                                    else:
-                                        st.error("Enter a number between 1 and 99.")
-                                except (ValueError, AttributeError):
-                                    st.error("Please enter a valid table number.")
-                    else:
-                        col1, col2, col3 = st.columns([1, 1, 3])
-                        with col1:
-                            if st.button("📞 Yes, get help", key=f"staff_yes_{idx}"):
-                                if not st.session_state.get("table_number"):
-                                    st.session_state._ping_needs_table = idx
-                                    st.rerun()
-                                else:
-                                    result = send_staff_ping(
-                                        table_id=f"Table {st.session_state.table_number}",
-                                        game_title=st.session_state.current_game or "Unknown",
-                                        question=st.session_state.last_question or "Help requested",
-                                        reason="rules_question"
-                                    )
-                                    st.session_state.messages[idx]["staff_requested"] = True
-                                    st.session_state.messages.append({
-                                        "role": "assistant",
-                                        "content": "✅ " + result["message"]
-                                    })
-                                    st.rerun()
-
-                        with col2:
-                            if st.button("📖 Check manual", key=f"staff_no_{idx}"):
-                                st.session_state.messages[idx]["staff_requested"] = "declined"
-                                st.session_state.messages.append({
-                                    "role": "assistant",
-                                    "content": "No problem! The physical rulebook at your table might have more details, or feel free to wave down a staff member anytime."
-                                })
-                                st.rerun()
-                
+                if message.get("staff_requested") not in (True, "declined"):
+                    st.session_state._pending_ping = {"idx": idx, "reason": "rules_question"}
                 elif message.get("staff_requested") == True:
                     st.success("✅ Staff has been notified")
 
-            # Show confirm button for AI-suggested staff pings
+            # Show confirm for AI-suggested staff pings (via dialog)
             if message["role"] == "assistant" and message.get("pending_ping"):
                 if message.get("ping_confirmed") is None:
-                    col1, col2, col3 = st.columns([1, 1, 3])
-                    with col1:
-                        if st.button("🚨 Yes, notify staff", key=f"ping_confirm_{idx}"):
-                            send_staff_ping(
-                                table_id=f"Table {st.session_state.get('table_number', '?')}",
-                                game_title=st.session_state.current_game or "N/A",
-                                question="AI-suggested ping confirmed by customer",
-                                reason=message["pending_ping"]
-                            )
-                            st.session_state.messages[idx]["ping_confirmed"] = True
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": "✅ Staff has been notified! Someone will be with you shortly."
-                            })
-                            st.rerun()
-                    with col2:
-                        if st.button("No, I'm fine", key=f"ping_decline_{idx}"):
-                            st.session_state.messages[idx]["ping_confirmed"] = False
-                            st.rerun()
+                    st.session_state._pending_ping = {"idx": idx, "reason": message["pending_ping"]}
                 elif message.get("ping_confirmed") == True:
                     st.success("✅ Staff has been notified")
+
+    # Open staff ping confirmation dialog if pending
+    if st.session_state.get("_pending_ping"):
+        open_staff_ping_dialog()
 
     # Quick-action buttons pinned in bottom bar, above chat input
     with st._bottom:
