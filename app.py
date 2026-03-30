@@ -1263,17 +1263,18 @@ PING_REASON_LABELS = {
 
 @st.dialog("Notify Staff?")
 def open_staff_ping_dialog():
-    """Modal confirmation for AI-suggested staff pings."""
+    """Modal overlay for staff ping confirmation — all paths (AI-suggested + manual button)."""
     pending = st.session_state.get("_pending_ping")
     if not pending:
         st.rerun()
         return
 
-    idx = pending["idx"]
+    idx = pending.get("idx")  # None for manual button presses
     reason = pending["reason"]
     label = PING_REASON_LABELS.get(reason, "Help")
 
-    st.markdown(f"The assistant thinks you could use some help: **{label}**")
+    if idx is not None:
+        st.markdown(f"The assistant thinks you could use some help: **{label}**")
     st.markdown("Would you like us to send a staff member to your table?")
 
     # Collect table number if missing
@@ -1302,12 +1303,14 @@ def open_staff_ping_dialog():
             send_staff_ping(
                 table_id=f"Table {st.session_state.get('table_number', '?')}",
                 game_title=st.session_state.current_game or "N/A",
-                question="AI-suggested ping confirmed by customer",
+                question="Staff help requested" if idx is None else "AI-suggested ping confirmed by customer",
                 reason=reason,
             )
-            st.session_state.messages[idx]["ping_confirmed"] = True
-            if st.session_state.messages[idx].get("staff_requested") is not None:
-                st.session_state.messages[idx]["staff_requested"] = True
+            # Update the originating message if it came from an AI response
+            if idx is not None:
+                st.session_state.messages[idx]["ping_confirmed"] = True
+                if st.session_state.messages[idx].get("staff_requested") is not None:
+                    st.session_state.messages[idx]["staff_requested"] = True
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": "✅ Staff has been notified! Someone will be with you shortly.",
@@ -1316,9 +1319,10 @@ def open_staff_ping_dialog():
             st.rerun()
     with col2:
         if st.button("No, I'm fine", use_container_width=True, key="ping_dialog_no"):
-            st.session_state.messages[idx]["ping_confirmed"] = False
-            if st.session_state.messages[idx].get("staff_requested") is not None:
-                st.session_state.messages[idx]["staff_requested"] = "declined"
+            if idx is not None:
+                st.session_state.messages[idx]["ping_confirmed"] = False
+                if st.session_state.messages[idx].get("staff_requested") is not None:
+                    st.session_state.messages[idx]["staff_requested"] = "declined"
             st.session_state._pending_ping = None
             st.rerun()
 
@@ -2283,36 +2287,11 @@ Keep it to 1-2 sentences. Don't mention their phone number.
     if st.session_state.current_game:
         st.info(f"🎮 {ui.get('currently_helping', 'Currently helping with')}: **{st.session_state.current_game}**")
 
-    # Table number prompt for staff help button
+    # Staff help button triggers same dialog as AI-suggested pings
     if st.session_state.get("_staff_btn_needs_table"):
-        st.warning("📍 What table are you at? Check the table number sticker on your table.")
-        with st.form("staff_table_form"):
-            staff_tbl = st.text_input("Table number", placeholder="e.g. 5",
-                                       key="staff_btn_tbl")
-            if st.form_submit_button("Submit & notify staff", use_container_width=True):
-                try:
-                    tbl_num = int(staff_tbl.strip())
-                    if 1 <= tbl_num <= 99:
-                        st.session_state.table_number = tbl_num
-                        claim_table(st.session_state.visit_id,
-                                    st.session_state.customer_phone,
-                                    st.session_state.table_number)
-                        st.session_state._staff_btn_needs_table = False
-                        result = send_staff_ping(
-                            table_id=f"Table {st.session_state.table_number}",
-                            game_title=st.session_state.current_game or "N/A",
-                            question="Staff help requested via button",
-                            reason="general_help"
-                        )
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": "✅ " + result["message"]
-                        })
-                        st.rerun()
-                    else:
-                        st.error("Please enter a table number between 1 and 99.")
-                except (ValueError, AttributeError):
-                    st.error("Please enter a valid table number.")
+        st.session_state._staff_btn_needs_table = False
+        st.session_state._pending_ping = {"idx": None, "reason": "general_help"}
+        st.rerun()
 
     # Display chat history
     for idx, message in enumerate(st.session_state.messages):
@@ -2362,21 +2341,8 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 open_order_dialog()
         with cols[3]:
             if st.button(f"🙋 {ui.get('get_staff', 'Get staff help')}", use_container_width=True, key="btn_staff"):
-                if not st.session_state.get("table_number"):
-                    st.session_state._staff_btn_needs_table = True
-                    st.rerun()
-                else:
-                    result = send_staff_ping(
-                        table_id=f"Table {st.session_state.table_number}",
-                        game_title=st.session_state.current_game or "N/A",
-                        question="Staff help requested via button",
-                        reason="general_help"
-                    )
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": "✅ " + result["message"]
-                    })
-                    st.rerun()
+                st.session_state._pending_ping = {"idx": None, "reason": "general_help"}
+                st.rerun()
 
     # Chat input (also in bottom bar, rendered after buttons)
     typed_input = st.chat_input(ui.get("chat_placeholder", "Ask about rules, the menu, or anything else..."))
