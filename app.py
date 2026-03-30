@@ -2366,6 +2366,15 @@ Keep it to 1-2 sentences. Don't mention their phone number.
         prompt = typed_input
 
     if prompt:
+        # Clear any pending staff ping dialog (user moved on — treat as decline)
+        if st.session_state.get("_pending_ping"):
+            idx = st.session_state._pending_ping.get("idx")
+            if idx is not None:
+                st.session_state.messages[idx]["ping_confirmed"] = False
+                if st.session_state.messages[idx].get("staff_requested") is not None:
+                    st.session_state.messages[idx]["staff_requested"] = "declined"
+            st.session_state._pending_ping = None
+
         # Store the question for potential staff ping
         st.session_state.last_question = prompt
 
