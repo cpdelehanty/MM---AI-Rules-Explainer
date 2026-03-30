@@ -34,7 +34,7 @@ from user_store import (
 )
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # Configuration
 TOP_K_RESULTS = 5
