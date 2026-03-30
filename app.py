@@ -1266,8 +1266,7 @@ def open_staff_ping_dialog():
     """Modal overlay for staff ping confirmation — all paths (AI-suggested + manual button)."""
     pending = st.session_state.get("_pending_ping")
     if not pending:
-        st.rerun()
-        return
+        return  # Stale dialog — just render empty, Streamlit will close it
 
     idx = pending.get("idx")  # None for manual button presses
     reason = pending["reason"]
@@ -2372,9 +2371,11 @@ Keep it to 1-2 sentences. Don't mention their phone number.
         prompt = typed_input
 
     if prompt:
-        # Clear any pending staff ping dialog (user moved on — treat as decline)
-        if st.session_state.get("_pending_ping"):
-            idx = st.session_state._pending_ping.get("idx")
+        # Clear any pending staff ping dialog (user moved on — treat as decline).
+        # Mark the message so the chat loop won't re-trigger the dialog.
+        if st.session_state.get("_pending_ping") or st.session_state.get("_ping_dialog_opened"):
+            pending = st.session_state.get("_pending_ping") or {}
+            idx = pending.get("idx")
             if idx is not None:
                 st.session_state.messages[idx]["ping_confirmed"] = False
                 if st.session_state.messages[idx].get("staff_requested") is not None:
