@@ -419,6 +419,169 @@ class TestClaimTable:
 
 
 # ============================================================
+# ADVERSARIAL / EDGE CASE TESTS
+# ============================================================
+
+class TestCartSubtotalEdgeCases:
+    def test_missing_qty_defaults_to_1(self):
+        from app import get_cart_subtotal
+        # Cart items without qty should be treated as qty=1
+        assert get_cart_subtotal([{"price": 5.0}]) == 5.0
+
+    def test_string_price_crashes(self):
+        from app import get_cart_subtotal
+        # String prices should cause an error — catch it early
+        with pytest.raises((TypeError, ValueError)):
+            get_cart_subtotal([{"price": "$5", "qty": 1}])
+
+    def test_zero_price(self):
+        from app import get_cart_subtotal
+        # Free items (from deals) have price=0
+        cart = [{"price": 0, "qty": 1}, {"price": 10.0, "qty": 1}]
+        assert get_cart_subtotal(cart) == 10.0
+
+    def test_negative_qty(self):
+        from app import get_cart_subtotal
+        # Shouldn't happen, but if it does, subtotal goes negative
+        result = get_cart_subtotal([{"price": 10.0, "qty": -1}])
+        assert result == -10.0  # This IS what happens — worth knowing
+
+
+class TestStaffPingTagsEdgeCases:
+    def test_multiple_tags_only_extracts_first(self):
+        from app import process_staff_ping_tags
+        text = "Help [STAFF_PING:general_help] and [STAFF_PING:food_order]"
+        cleaned, reason = process_staff_ping_tags(text)
+        assert reason == "general_help"
+        # Second tag is also stripped
+        assert "[STAFF_PING" not in cleaned
+
+    def test_tag_with_no_text(self):
+        from app import process_staff_ping_tags
+        cleaned, reason = process_staff_ping_tags("[STAFF_PING:general_help]")
+        assert reason == "general_help"
+        assert cleaned == ""
+
+    def test_malformed_tag_ignored(self):
+        from app import process_staff_ping_tags
+        # Missing closing bracket — should not match
+        text = "Help [STAFF_PING:general_help"
+        cleaned, reason = process_staff_ping_tags(text)
+        assert reason is None
+
+
+class TestPhoneEdgeCases:
+    def test_empty_string(self):
+        from user_store import normalize_phone
+        assert normalize_phone("") is None
+
+    def test_letters_only(self):
+        from user_store import normalize_phone
+        assert normalize_phone("abcdefghij") is None
+
+    def test_international_number_rejected(self):
+        from user_store import normalize_phone, validate_phone
+        # UK number — should not be valid for US-only system
+        result = normalize_phone("+447911123456")
+        if result:
+            assert validate_phone(result) is False
+
+    def test_too_many_digits(self):
+        from user_store import normalize_phone
+        result = normalize_phone("123456789012345")
+        if result:
+            from user_store import validate_phone
+            assert validate_phone(result) is False
+
+
+class TestDealEvaluationEdgeCases:
+    def test_deal_with_zero_discount(self, test_db):
+        """A percent deal with 0% discount should still be 'eligible' but worthless."""
+        from sync_deals import evaluate_deals
+        conn = sqlite3.connect(test_db)
+        conn.execute("""
+            INSERT INTO deals (deal_id, name, display_text, discount_type, discount_value, active)
+            VALUES ('ZERO_PCT', 'Zero Deal', '0% off!', 'percent', 0, 1)
+        """)
+        conn.commit()
+        conn.close()
+        eligible, _ = evaluate_deals(None, 0)
+        assert any(d["deal_id"] == "ZERO_PCT" for d in eligible)
+
+    def test_deal_with_future_expiry(self, test_db):
+        """Deal expiring next year should still be eligible."""
+        from sync_deals import evaluate_deals
+        conn = sqlite3.connect(test_db)
+        conn.execute("""
+            INSERT INTO deals (deal_id, name, display_text, discount_type, discount_value,
+                active, expiry_date)
+            VALUES ('FUTURE', 'Future Deal', '5% off!', 'percent', 5, 1, '2030-12-31')
+        """)
+        conn.commit()
+        conn.close()
+        eligible, _ = evaluate_deals(None, 0)
+        assert any(d["deal_id"] == "FUTURE" for d in eligible)
+
+    def test_inactive_deal_excluded(self, test_db):
+        """Explicitly inactive deals should never appear."""
+        from sync_deals import evaluate_deals
+        conn = sqlite3.connect(test_db)
+        conn.execute("""
+            INSERT INTO deals (deal_id, name, display_text, discount_type, discount_value, active)
+            VALUES ('INACTIVE', 'Dead Deal', 'Should not show', 'percent', 99, 0)
+        """)
+        conn.commit()
+        conn.close()
+        eligible, near_miss = evaluate_deals(None, 1000)
+        all_ids = [d["deal_id"] for d in eligible + near_miss]
+        assert "INACTIVE" not in all_ids
+
+
+class TestUpsellEdgeCases:
+    def test_cart_with_only_upsell_items(self, test_db):
+        """Cart containing only upsell-added items — should still evaluate."""
+        from sync_deals import evaluate_cart_upsells
+        cart = [
+            {"category": "Snacks", "price": 7.5, "qty": 1, "name": "Pretzel Bites",
+             "upsell_id": "UPSELL_BEER_SNACK"},
+        ]
+        # Should not crash, may return None (no requires_categories match without real items)
+        result = evaluate_cart_upsells(cart)
+        # The beer+snack upsell requires Beer - Draft, which isn't in cart
+        # So this should return None or a different upsell
+        assert result is None or result["id"] != "UPSELL_BEER_SNACK"
+
+    def test_very_large_cart(self, test_db):
+        """Cart with 50 items shouldn't crash."""
+        from sync_deals import evaluate_cart_upsells
+        cart = [{"category": "Beer - Draft", "price": 6, "qty": 1, "name": f"Beer {i}"}
+                for i in range(50)]
+        result = evaluate_cart_upsells(cart)
+        # Should handle gracefully
+        assert result is not None or result is None  # no crash
+
+
+class TestClaimTableEdgeCases:
+    def test_claim_nonexistent_table(self, test_db):
+        """Claiming a table number that doesn't exist in the tables table."""
+        conn = sqlite3.connect(test_db)
+        conn.execute("INSERT INTO active_sessions (visit_id, phone, status) VALUES ('v99', 'p99', 'active')")
+        conn.commit()
+        conn.close()
+
+        from app import claim_table
+        # Table 99 doesn't exist (we only seeded 1-12)
+        claim_table("v99", "p99", 99)
+
+        conn = sqlite3.connect(test_db)
+        conn.row_factory = sqlite3.Row
+        sess = conn.execute("SELECT table_number FROM active_sessions WHERE visit_id='v99'").fetchone()
+        conn.close()
+        # Session should still get the table number even if table row doesn't exist
+        assert sess["table_number"] == 99
+
+
+# ============================================================
 # 4. INTEGRATION FLOWS
 # ============================================================
 
