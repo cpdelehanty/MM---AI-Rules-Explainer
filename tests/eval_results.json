@@ -1,0 +1,89 @@
+{
+  "timestamp": "2026-03-29T22:46:20.373900",
+  "questions": 10,
+  "groundedness_pct": 0.0,
+  "helpfulness_pct": 0.0,
+  "results": [
+    {
+      "game": "Catan",
+      "question": "How do you set up the game for the first time?",
+      "category": "setup",
+      "groundedness": 0,
+      "helpfulness": 0,
+      "note": "Error: \"Could not resolve authentication method. Expected either api_key or auth_token to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\""
+    },
+    {
+      "game": "Catan",
+      "question": "When can you trade resources with other players?",
+      "category": "gameplay",
+      "groundedness": 0,
+      "helpfulness": 0,
+      "note": "Error: \"Could not resolve authentication method. Expected either api_key or auth_token to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\""
+    },
+    {
+      "game": "Catan",
+      "question": "What happens when you roll a 7?",
+      "category": "gameplay",
+      "groundedness": 0,
+      "helpfulness": 0,
+      "note": "Error: \"Could not resolve authentication method. Expected either api_key or auth_token to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\""
+    },
+    {
+      "game": "Catan",
+      "question": "How many victory points do you need to win?",
+      "category": "scoring",
+      "groundedness": 0,
+      "helpfulness": 0,
+      "note": "Error: \"Could not resolve authentication method. Expected either api_key or auth_token to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\""
+    },
+    {
+      "game": "Catan",
+      "question": "Can you build a settlement anywhere on the board?",
+      "category": "gameplay",
+      "groundedness": 0,
+      "helpfulness": 0,
+      "note": "Error: \"Could not resolve authentication method. Expected either api_key or auth_token to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\""
+    },
+    {
+      "game": "Catan",
+      "question": "What are development cards and how do you use them?",
+      "category": "gameplay",
+      "groundedness": 0,
+      "helpfulness": 0,
+      "note": "Error: \"Could not resolve authentication method. Expected either api_key or auth_token to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\""
+    },
+    {
+      "game": "Catan",
+      "question": "How does longest road work?",
+      "category": "scoring",
+      "groundedness": 0,
+      "helpfulness": 0,
+      "note": "Error: \"Could not resolve authentication method. Expected either api_key or auth_token to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\""
+    },
+    {
+      "game": "Catan",
+      "question": "What resources are needed to build a city?",
+      "category": "gameplay",
+      "groundedness": 0,
+      "helpfulness": 0,
+      "note": "Error: \"Could not resolve authentication method. Expected either api_key or auth_token to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\""
+    },
+    {
+      "game": "Wingspan",
+      "question": "How do you set up Wingspan?",
+      "category": "setup",
+      "groundedness": 0,
+      "helpfulness": 0,
+      "note": "Error: \"Could not resolve authentication method. Expected either api_key or auth_token to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\""
+    },
+    {
+      "game": "Wingspan",
+      "question": "What are the three habitats and what do they do?",
+      "category": "gameplay",
+      "groundedness": 0,
+      "helpfulness": 0,
+      "note": "Error: \"Could not resolve authentication method. Expected either api_key or auth_token to be set. Or for one of the `X-Api-Key` or `Authorization` headers to be explicitly omitted\""
+    }
+  ],
+  "failures": []
+}
