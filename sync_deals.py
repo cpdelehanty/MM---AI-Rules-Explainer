@@ -17,21 +17,35 @@ from database import (
 )
 
 
+SYNC_STALE_MINUTES = 15
+
+
+def _is_stale(last_sync_ts):
+    """Return True if last_sync_ts is None or older than SYNC_STALE_MINUTES."""
+    if last_sync_ts is None:
+        return True
+    try:
+        last_dt = datetime.fromisoformat(last_sync_ts)
+        return (datetime.now() - last_dt) > timedelta(minutes=SYNC_STALE_MINUTES)
+    except (ValueError, TypeError):
+        return True
+
+
 # --- Sync checks ---
 
 def should_sync_deals():
-    """Check if we need to sync deals today"""
-    return get_last_deals_sync() is None
+    """Check if deals sync is stale (>15 min since last sync)"""
+    return _is_stale(get_last_deals_sync())
 
 
 def should_sync_events():
-    """Check if we need to sync events today"""
-    return get_last_events_sync() is None
+    """Check if events sync is stale (>15 min since last sync)"""
+    return _is_stale(get_last_events_sync())
 
 
 def should_sync_auto_rules():
-    """Check if we need to sync auto-deal rules today"""
-    return get_last_auto_rules_sync() is None
+    """Check if auto-deal rules sync is stale (>15 min since last sync)"""
+    return _is_stale(get_last_auto_rules_sync())
 
 
 # --- Google Sheets auth helper ---
@@ -101,18 +115,27 @@ def sync_deals_from_sheets():
                 except (ValueError, TypeError):
                     return default
 
+            free_item_id = str(row.get("free_item_id", "")).strip() or None
+            if free_item_id:
+                # Validate that free_item_id exists in menu_items
+                from database import get_menu_items
+                match = [mi for mi in get_menu_items() if mi["item_id"] == free_item_id]
+                if not match:
+                    print(f"[DEALS SYNC] Warning: free_item_id '{free_item_id}' not found in menu_items for deal '{deal_id}'")
+
             cursor.execute("""
                 INSERT INTO deals (deal_id, name, display_text, discount_type, discount_value,
-                    free_item_description, target_category, min_spend, min_visit_count, min_party_size,
+                    free_item_description, free_item_id, target_category, min_spend, min_visit_count, min_party_size,
                     first_visit_only, time_of_day_start, time_of_day_end, days_of_week,
                     active, expiry_date, last_synced)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(deal_id) DO UPDATE SET
                     name = excluded.name,
                     display_text = excluded.display_text,
                     discount_type = excluded.discount_type,
                     discount_value = excluded.discount_value,
                     free_item_description = excluded.free_item_description,
+                    free_item_id = excluded.free_item_id,
                     target_category = excluded.target_category,
                     min_spend = excluded.min_spend,
                     min_visit_count = excluded.min_visit_count,
@@ -131,6 +154,7 @@ def sync_deals_from_sheets():
                 str(row.get("discount_type", "percent")).strip(),
                 safe_float(row.get("discount_value")),
                 str(row.get("free_item_description", "")).strip(),
+                free_item_id,
                 str(row.get("target_category", "")).strip() or None,
                 safe_float(row.get("min_spend")),
                 safe_int(row.get("min_visit_count")),
@@ -331,9 +355,9 @@ def sync_auto_rules_from_sheets():
 # --- Cart Upsells Sync ---
 
 def should_sync_cart_upsells():
-    """Check if we need to sync cart upsells today."""
+    """Check if cart upsells sync is stale (>15 min since last sync)."""
     from database import get_last_cart_upsells_sync
-    return get_last_cart_upsells_sync() is None
+    return _is_stale(get_last_cart_upsells_sync())
 
 
 def sync_cart_upsells_from_sheets():
@@ -596,25 +620,20 @@ def evaluate_deals(customer_profile=None, cart_subtotal=0):
                 continue  # Wrong day — no near-miss for this
 
         # Classify
+        deal_dict = {
+            "deal_id": deal["deal_id"],
+            "display_text": deal["display_text"],
+            "discount_type": deal.get("discount_type", ""),
+            "discount_value": deal.get("discount_value", 0),
+            "free_item_description": deal.get("free_item_description", ""),
+            "free_item_id": deal.get("free_item_id", ""),
+            "target_category": deal.get("target_category", ""),
+        }
         if len(failures) == 0:
-            eligible.append({
-                "deal_id": deal["deal_id"],
-                "display_text": deal["display_text"],
-                "discount_type": deal.get("discount_type", ""),
-                "discount_value": deal.get("discount_value", 0),
-                "free_item_description": deal.get("free_item_description", ""),
-                "target_category": deal.get("target_category", ""),
-            })
+            eligible.append(deal_dict)
         elif len(failures) == 1:
-            near_miss.append({
-                "deal_id": deal["deal_id"],
-                "display_text": deal["display_text"],
-                "discount_type": deal.get("discount_type", ""),
-                "discount_value": deal.get("discount_value", 0),
-                "free_item_description": deal.get("free_item_description", ""),
-                "target_category": deal.get("target_category", ""),
-                "gap": failures[0]["gap"],
-            })
+            deal_dict["gap"] = failures[0]["gap"]
+            near_miss.append(deal_dict)
         # 2+ failures → not shown
 
     return eligible, near_miss
@@ -751,10 +770,11 @@ def evaluate_cart_upsells(cart):
                 continue
 
         # Check excludes: none of these categories should be in cart
+        # Skip items added by upsells — they shouldn't block other upsells
         if excludes_cats:
             has_excluded = any(
                 item.get("category", "").lower() in excludes_cats
-                for item in cart
+                for item in cart if not item.get("upsell_id")
             )
             if has_excluded:
                 continue

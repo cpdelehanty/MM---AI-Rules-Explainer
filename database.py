@@ -89,6 +89,7 @@ def init_database():
             discount_type TEXT NOT NULL,
             discount_value REAL,
             free_item_description TEXT,
+            free_item_id TEXT,
             target_category TEXT,
             min_spend REAL DEFAULT 0,
             min_visit_count INTEGER DEFAULT 0,

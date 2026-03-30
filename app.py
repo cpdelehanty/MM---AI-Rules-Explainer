@@ -1299,6 +1299,21 @@ def open_order_dialog():
             st.markdown(item_line)
         st.divider()
 
+        # Re-validate applied deals against current eligibility
+        if st.session_state.deals_applied:
+            customer_profile_recheck = None
+            if st.session_state.customer_phone and st.session_state.customer_phone != "ANON":
+                customer_profile_recheck = get_customer(st.session_state.customer_phone)
+            current_eligible, _ = evaluate_deals(customer_profile_recheck, subtotal)
+            eligible_ids = {d["deal_id"] for d in current_eligible}
+            original_count = len(st.session_state.deals_applied)
+            st.session_state.deals_applied = [
+                d for d in st.session_state.deals_applied if d["deal_id"] in eligible_ids
+            ]
+            removed = original_count - len(st.session_state.deals_applied)
+            if removed > 0:
+                st.warning(f"{removed} deal{'s' if removed != 1 else ''} no longer eligible and {'have' if removed != 1 else 'has'} been removed.")
+
         # Deal discounts (upsell items excluded from order-level deals)
         non_upsell_subtotal = sum(
             item["price"] * item.get("qty", 1)
@@ -1811,28 +1826,32 @@ def open_order_dialog():
                 elif st.button(ui.get("apply", "Apply"), key=f"deal_{best_cart_deal['deal_id']}", use_container_width=True):
                     st.session_state.deals_applied.append(best_cart_deal)
                     if best_cart_deal.get("discount_type") == "free_item":
+                        # Look up free item: prefer free_item_id, fall back to name match
+                        free_id = best_cart_deal.get("free_item_id", "")
                         free_name = best_cart_deal.get("free_item_description", "")
-                        if free_name:
-                            all_items = get_menu_items(available_only=True)
-                            for mi in all_items:
-                                if mi["name"].lower() == free_name.lower():
-                                    already_in_cart = any(
-                                        c.get("item_id") == mi["item_id"] and c.get("deal_id") == best_cart_deal["deal_id"]
-                                        for c in st.session_state.cart
-                                    )
-                                    if not already_in_cart:
-                                        st.session_state.cart.append({
-                                            "item_id": mi["item_id"],
-                                            "name": mi["name"],
-                                            "category": mi.get("category", ""),
-                                            "price": 0,
-                                            "original_price": float(str(mi.get("price", "0")).replace("$", "") or 0),
-                                            "quantity": 1,
-                                            "qty": 1,
-                                            "notes": f"FREE — {best_cart_deal['display_text']}",
-                                            "deal_id": best_cart_deal["deal_id"],
-                                        })
-                                    break
+                        all_items = get_menu_items(available_only=True)
+                        matched_item = None
+                        if free_id:
+                            matched_item = next((mi for mi in all_items if mi["item_id"] == free_id), None)
+                        if not matched_item and free_name:
+                            matched_item = next((mi for mi in all_items if mi["name"].lower() == free_name.lower()), None)
+                        if matched_item:
+                            already_in_cart = any(
+                                c.get("item_id") == matched_item["item_id"] and c.get("deal_id") == best_cart_deal["deal_id"]
+                                for c in st.session_state.cart
+                            )
+                            if not already_in_cart:
+                                st.session_state.cart.append({
+                                    "item_id": matched_item["item_id"],
+                                    "name": matched_item["name"],
+                                    "category": matched_item.get("category", ""),
+                                    "price": 0,
+                                    "original_price": float(str(matched_item.get("price", "0")).replace("$", "") or 0),
+                                    "quantity": 1,
+                                    "qty": 1,
+                                    "notes": f"FREE — {best_cart_deal['display_text']}",
+                                    "deal_id": best_cart_deal["deal_id"],
+                                })
                     st.rerun(scope="fragment")
 
         # Place order button (show discounted total if applicable)
@@ -2042,8 +2061,18 @@ def main():
             cached_responses, customer_lang, os.environ.get("ANTHROPIC_API_KEY")
         )
 
-    # Sync deals, events, and auto-deal rules (daily, cached)
+    # Sync deals, events, and auto-deal rules (cold start via cache)
     load_deals_and_events()
+
+    # Periodic re-sync check (every 15 min, outside cache)
+    if should_sync_deals():
+        sync_deals_from_sheets()
+    if should_sync_events():
+        sync_events_from_sheets()
+    if should_sync_auto_rules():
+        sync_auto_rules_from_sheets()
+    if should_sync_cart_upsells():
+        sync_cart_upsells_from_sheets()
 
     # Initialize remaining session state
     if 'messages' not in st.session_state:
