@@ -245,163 +245,6 @@ def get_loading_message():
     """Return a random cute loading message"""
     return _random.choice(LOADING_MESSAGES)
 
-
-# SVG path for a D20 face (11-sided polygon approximating the icosahedron face ring)
-_D20_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="{size}" height="{size}">
-  <polygon points="50,3 73,10 90,28 95,52 85,74 65,90 35,90 15,74 5,52 10,28 27,10"
-           fill="#4f46e5" stroke="#818cf8" stroke-width="1.5"/>
-  <polygon points="50,18 66,24 76,38 73,55 60,65 40,65 27,55 24,38 34,24"
-           fill="none" stroke="#a5b4fc" stroke-width="1" opacity="0.6"/>
-  <text x="50" y="58" text-anchor="middle" fill="white"
-        font-size="{fontsize}" font-weight="bold" font-family="Arial, sans-serif">{number}</text>
-</svg>"""
-
-D20_CSS = """<style>
-@keyframes d20spin {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-}
-@keyframes d20land {
-    0%   { transform: rotate(0deg)   scale(1);   filter: brightness(1); }
-    35%  { transform: rotate(20deg)  scale(1.45); filter: brightness(1.6); }
-    65%  { transform: rotate(-8deg)  scale(1.18); filter: brightness(1.2); }
-    100% { transform: rotate(0deg)   scale(1.1);  filter: brightness(1); }
-}
-@keyframes fadeUp {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-.d20-wrap  { display:flex; flex-direction:column; align-items:center; padding:1.2rem 0; gap:0.6rem; }
-.d20-spin  { display:inline-block; animation: d20spin 1.1s linear infinite; transform-origin: center; }
-.d20-land  { display:inline-block; animation: d20land 0.45s ease-out forwards; transform-origin: center; }
-.d20-msg   { font-size:.95rem; color:#6b7280; font-style:italic; animation: fadeUp .3s ease-out; }
-.d20-nat20 { font-size:1.05rem; color:#d97706; font-weight:700; animation: fadeUp .25s ease-out; }
-</style>"""
-
-
-def _d20_svg(number="?", size=70, fontsize=28):
-    return _D20_SVG.format(size=size, fontsize=fontsize, number=number)
-
-
-def show_d20_spinner(placeholder):
-    """Render spinning D20 with a random loading message."""
-    msg = get_loading_message()
-    clean_msg = msg.split(" ", 1)[1] if " " in msg else msg
-    placeholder.markdown(
-        D20_CSS + f'<div class="d20-wrap">'
-        f'<div class="d20-spin">{_d20_svg("?")}</div>'
-        f'<div class="d20-msg">{clean_msg}</div></div>',
-        unsafe_allow_html=True,
-    )
-
-
-def show_d20_landed(placeholder):
-    """Flash Nat 20 landing animation, then clear the placeholder."""
-    if placeholder is None:
-        return
-    placeholder.markdown(
-        D20_CSS + f'<div class="d20-wrap">'
-        f'<div class="d20-land">{_d20_svg("20", size=78, fontsize=30)}</div>'
-        f'<div class="d20-nat20">Nat 20!</div></div>',
-        unsafe_allow_html=True,
-    )
-    _time.sleep(0.55)
-    placeholder.empty()
-
-
-# Client-side JS injected once per session: shows D20 overlay the instant the
-# user submits the chat input, before any server round-trip.
-D20_INSTANT_JS = """
-<script>
-(function() {
-  if (window._d20HookInstalled) return;
-  window._d20HookInstalled = true;
-
-  const MESSAGES = """ + str(LOADING_MESSAGES) + """;
-
-  function randomMsg() {
-    const m = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
-    // strip leading emoji word
-    return m.replace(/^\\S+\\s/, '');
-  }
-
-  const CSS = `
-    @keyframes _d20spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-    @keyframes _fadeUp   { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
-    #_d20overlay {
-      position:fixed; left:50%; bottom:90px; transform:translateX(-50%);
-      z-index:99999; display:none; flex-direction:column; align-items:center;
-      gap:8px; pointer-events:none;
-    }
-    #_d20overlay.show { display:flex; }
-    #_d20spin { animation:_d20spin 1.1s linear infinite; }
-    #_d20msg  { font-size:.9rem; color:#374151; font-style:italic;
-                background:rgba(255,255,255,.85); border-radius:6px;
-                padding:3px 10px; animation:_fadeUp .3s ease-out; }
-  `;
-
-  const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="64" height="64">'
-    + '<polygon points="50,3 73,10 90,28 95,52 85,74 65,90 35,90 15,74 5,52 10,28 27,10"'
-    + ' fill="#4f46e5" stroke="#818cf8" stroke-width="1.5"/>'
-    + '<polygon points="50,18 66,24 76,38 73,55 60,65 40,65 27,55 24,38 34,24"'
-    + ' fill="none" stroke="#a5b4fc" stroke-width="1" opacity="0.6"/>'
-    + '<text x="50" y="58" text-anchor="middle" fill="white"'
-    + ' font-size="28" font-weight="bold" font-family="Arial,sans-serif">?</text></svg>';
-
-  // Inject style + overlay div
-  const style = document.createElement('style');
-  style.textContent = CSS;
-  document.head.appendChild(style);
-
-  const overlay = document.createElement('div');
-  overlay.id = '_d20overlay';
-  overlay.innerHTML = '<div id="_d20spin">' + SVG + '</div><div id="_d20msg"></div>';
-  document.body.appendChild(overlay);
-
-  function showOverlay() {
-    document.getElementById('_d20msg').textContent = randomMsg();
-    overlay.classList.add('show');
-  }
-  function hideOverlay() {
-    overlay.classList.remove('show');
-  }
-
-  // Hook: Enter key in chat input
-  function attachHook() {
-    const textarea = document.querySelector('[data-testid="stChatInputTextArea"]');
-    if (!textarea || textarea._d20hooked) return;
-    textarea._d20hooked = true;
-    textarea.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' && !e.shiftKey && textarea.value.trim()) {
-        showOverlay();
-      }
-    });
-    // Also hook the send button
-    const btn = textarea.closest('form')?.querySelector('button[type="submit"]');
-    if (btn) btn.addEventListener('click', function() {
-      if (textarea.value.trim()) showOverlay();
-    });
-  }
-
-  // Hide overlay once Streamlit finishes loading (script idle)
-  const appObserver = new MutationObserver(function() {
-    const running = document.querySelector('[data-testid="stStatusWidget"] [title="Running..."]');
-    if (!running) hideOverlay();
-  });
-  appObserver.observe(document.body, {subtree:true, childList:true, attributes:true});
-
-  // Poll to attach hook (chat input may not exist yet on load)
-  const hookInterval = setInterval(function() {
-    attachHook();
-    if (document.querySelector('[data-testid="stChatInputTextArea"]?._d20hooked')) {
-      clearInterval(hookInterval);
-    }
-  }, 500);
-})();
-</script>
-"""
-
-
 def anthropic_create_with_retry(client, max_retries=3, **kwargs):
     """Call anthropic_client.messages.create with retry on overloaded (529) or rate-limit (429) errors.
 
@@ -2452,9 +2295,6 @@ Keep it to 1-2 sentences. Don't mention their phone number.
         st.session_state._ping_dialog_opened = False
         st.rerun()
 
-    # Inject client-side D20 overlay (fires instantly on submit, before server round-trip)
-    st.markdown(D20_INSTANT_JS, unsafe_allow_html=True)
-
     # Display chat history
     for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
@@ -2551,14 +2391,6 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
                 st.markdown(prompt)
-
-        # Show D20 spinner immediately — visible throughout the full loading period.
-        # Skipped for cached responses (instant). Each response branch calls
-        # show_d20_landed(_early_d20) just before streaming to do the Nat 20 flash.
-        _early_d20 = None
-        if not is_cached_response:
-            _early_d20 = st.empty()
-            show_d20_spinner(_early_d20)
 
         # Extract preferences from user message (fire-and-forget background thread)
         import threading
@@ -2661,20 +2493,20 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 if has_question:
                     # Answer the question directly — skip the generic intro (streamed)
                     with st.chat_message("assistant"):
-                        api_kwargs, pages, sources_used = answer_question(
-                            prompt,
-                            detected_game,
-                            voyage_client,
-                            anthropic_client,
-                            menu_context,
-                            customer_context,
-                            language=current_lang,
-                            deals_context=deals_context,
-                            events_context=events_context,
-                            cart_context=cart_context,
-                            stream=True,
-                        )
-                        show_d20_landed(_early_d20)
+                        with st.status(get_loading_message(), expanded=True, state="running"):
+                            api_kwargs, pages, sources_used = answer_question(
+                                prompt,
+                                detected_game,
+                                voyage_client,
+                                anthropic_client,
+                                menu_context,
+                                customer_context,
+                                language=current_lang,
+                                deals_context=deals_context,
+                                events_context=events_context,
+                                cart_context=cart_context,
+                                stream=True,
+                            )
                         answer = st.write_stream(
                             anthropic_stream_with_retry(anthropic_client, **api_kwargs)
                         )
@@ -2702,13 +2534,13 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                 else:
                     # Just selecting a game — show intro
                     with st.chat_message("assistant"):
-                        intro_message = generate_game_intro(
-                            detected_game,
-                            voyage_client,
-                            anthropic_client,
-                            language=current_lang
-                        )
-                        show_d20_landed(_early_d20)
+                        with st.status(get_loading_message(), expanded=True, state="running"):
+                            intro_message = generate_game_intro(
+                                detected_game,
+                                voyage_client,
+                                anthropic_client,
+                                language=current_lang
+                            )
                         st.markdown(escape_dollars(intro_message))
                     st.session_state.messages.append({"role": "assistant", "content": intro_message})
                     st.rerun()
@@ -2716,20 +2548,20 @@ Keep it to 1-2 sentences. Don't mention their phone number.
             elif detected_game and detected_game == st.session_state.current_game:
                 # Same game detected - answer the question (streamed)
                 with st.chat_message("assistant"):
-                    api_kwargs, pages, sources_used = answer_question(
-                        prompt,
-                        st.session_state.current_game,
-                        voyage_client,
-                        anthropic_client,
-                        menu_context,
-                        customer_context,
-                        language=current_lang,
-                        deals_context=deals_context,
-                        events_context=events_context,
-                        cart_context=cart_context,
-                        stream=True,
-                    )
-                    show_d20_landed(_early_d20)
+                    with st.status(get_loading_message(), expanded=True, state="running"):
+                        api_kwargs, pages, sources_used = answer_question(
+                            prompt,
+                            st.session_state.current_game,
+                            voyage_client,
+                            anthropic_client,
+                            menu_context,
+                            customer_context,
+                            language=current_lang,
+                            deals_context=deals_context,
+                            events_context=events_context,
+                            cart_context=cart_context,
+                            stream=True,
+                        )
                     answer = st.write_stream(
                         anthropic_stream_with_retry(anthropic_client, **api_kwargs)
                     )
@@ -2775,7 +2607,6 @@ Keep it to 1-2 sentences. Don't mention their phone number.
                         cart_context=cart_context,
                         stream=True,
                     )
-                    show_d20_landed(_early_d20)
                     response = st.write_stream(
                         anthropic_stream_with_retry(anthropic_client, **api_kwargs)
                     )
@@ -2799,20 +2630,21 @@ Keep it to 1-2 sentences. Don't mention their phone number.
         else:
             # Game already selected and user isn't switching - answer about current game (streamed)
             with st.chat_message("assistant"):
-                api_kwargs, pages, sources_used = answer_question(
-                    prompt,
-                    st.session_state.current_game,
-                    voyage_client,
-                    anthropic_client,
-                    menu_context,
-                    customer_context,
-                    language=current_lang,
-                    deals_context=deals_context,
-                    events_context=events_context,
-                    cart_context=cart_context,
-                    stream=True,
-                )
-                show_d20_landed(_early_d20)
+                # Embedding + chunk retrieval happens before streaming
+                with st.status(get_loading_message(), expanded=True, state="running"):
+                    api_kwargs, pages, sources_used = answer_question(
+                        prompt,
+                        st.session_state.current_game,
+                        voyage_client,
+                        anthropic_client,
+                        menu_context,
+                        customer_context,
+                        language=current_lang,
+                        deals_context=deals_context,
+                        events_context=events_context,
+                        cart_context=cart_context,
+                        stream=True,
+                    )
                 answer = st.write_stream(
                     anthropic_stream_with_retry(anthropic_client, **api_kwargs)
                 )
