@@ -2025,13 +2025,23 @@ def main():
         else:
             t = {}
 
-        st.markdown(t.get("welcome", "Welcome! Enter your phone number to get started."))
-
         # Stash translations so the privacy dialog can pull them
         st.session_state["login_translations"] = t
 
-        if st.button(t.get("privacy_link", "How is my info used?"),
-                     key="open_privacy", type="tertiary"):
+        welcome = t.get("welcome", "Welcome! Enter your phone number to get started.")
+        privacy_link = t.get("privacy_link", "How is my info used?")
+        # Inline blue link on the same line as the welcome sentence —
+        # clicking sets ?privacy=1, which we detect on rerun to open the dialog.
+        st.markdown(
+            f"{welcome} "
+            f"<a href='?privacy=1' target='_self' "
+            f"style='color:#3b82f6; font-size:0.85em; text-decoration:underline;'>"
+            f"({privacy_link})</a>",
+            unsafe_allow_html=True,
+        )
+
+        if st.query_params.get("privacy") == "1":
+            del st.query_params["privacy"]
             open_privacy_dialog()
 
         with st.form("phone_gate_form"):
