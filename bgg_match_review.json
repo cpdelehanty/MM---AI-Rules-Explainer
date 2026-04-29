@@ -1,0 +1,163 @@
+[
+  {
+    "name": "Dungeons & Dragons: Waterdeep Dragon Heist",
+    "bgg_id": null,
+    "matched_name": null,
+    "confidence": 0,
+    "search_top_results": [],
+    "error": null
+  },
+  {
+    "name": "Orléans",
+    "bgg_id": 164928,
+    "matched_name": "Orléans",
+    "confidence": 0,
+    "search_top_results": [
+      {
+        "bgg_id": 164928,
+        "name": "Orléans",
+        "year": 2014
+      },
+      {
+        "bgg_id": 183682,
+        "name": "Orléans: Invasion",
+        "year": 2015
+      },
+      {
+        "bgg_id": 204814,
+        "name": "Orléans: Trade & Intrigue",
+        "year": 2016
+      },
+      {
+        "bgg_id": 171905,
+        "name": "Orléans: Deluxe Edition",
+        "year": 2015
+      },
+      {
+        "bgg_id": 287275,
+        "name": "Orléans Stories",
+        "year": 2019
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "Pandemic Legacy: Season 0",
+    "bgg_id": 314040,
+    "matched_name": "Pandemic Legacy: Season 0",
+    "confidence": 0,
+    "search_top_results": [
+      {
+        "bgg_id": 314040,
+        "name": "Pandemic Legacy: Season 0",
+        "year": 2020
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "The Crew: The Quest for Planet Nine",
+    "bgg_id": 284083,
+    "matched_name": "The Crew: The Quest for Planet Nine",
+    "confidence": 0,
+    "search_top_results": [
+      {
+        "bgg_id": 284083,
+        "name": "The Crew: The Quest for Planet Nine",
+        "year": 2019
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "Blockbuster Movie Game",
+    "bgg_id": 9308,
+    "matched_name": "Blockbuster Movie Game",
+    "confidence": 0,
+    "search_top_results": [
+      {
+        "bgg_id": 9308,
+        "name": "Blockbuster Movie Game",
+        "year": 2000
+      },
+      {
+        "bgg_id": 12665,
+        "name": "Blockbusters Gold Run Card Game",
+        "year": 1985
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "Mysterium Kids: Captain Echo's Treasure",
+    "bgg_id": 367206,
+    "matched_name": "Mysterium Kids: Captain Echo's Treasure",
+    "confidence": 0.6575757575757576,
+    "search_top_results": [
+      {
+        "bgg_id": 367206,
+        "name": "Mysterium Kids: Captain Echo's Treasure",
+        "year": 2022
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "Railroad Ink: Deep Blue Edition",
+    "bgg_id": 245654,
+    "matched_name": "Railroad Ink: Deep Blue Edition",
+    "confidence": 0.6692307692307693,
+    "search_top_results": [
+      {
+        "bgg_id": 245654,
+        "name": "Railroad Ink: Deep Blue Edition",
+        "year": 2018
+      },
+      {
+        "bgg_id": 251678,
+        "name": "Railroad Ink: Blazing Red Edition",
+        "year": 2018
+      },
+      {
+        "bgg_id": 306881,
+        "name": "Railroad Ink Challenge: Lush Green Edition",
+        "year": 2021
+      },
+      {
+        "bgg_id": 306882,
+        "name": "Railroad Ink Challenge: Shining Yellow Edition",
+        "year": 2021
+      },
+      {
+        "bgg_id": 320730,
+        "name": "Railroad Ink: Eldritch Expansion Pack",
+        "year": 2021
+      }
+    ],
+    "error": null
+  },
+  {
+    "name": "Unmatched: Battle of Legends, Volume One",
+    "bgg_id": 274637,
+    "matched_name": "Unmatched: Battle of Legends, Volume One",
+    "confidence": 0.790909090909091,
+    "search_top_results": [
+      {
+        "bgg_id": 274637,
+        "name": "Unmatched: Battle of Legends, Volume One",
+        "year": 2019
+      },
+      {
+        "bgg_id": 335764,
+        "name": "Unmatched: Battle of Legends, Volume Two",
+        "year": 2021
+      },
+      {
+        "bgg_id": 439765,
+        "name": "Unmatched: Battle of Legends, Volume Three",
+        "year": 2025
+      }
+    ],
+    "error": null
+  }
+]

@@ -32,6 +32,7 @@ from user_store import (
     increment_visit, log_visit, add_game_to_visit, update_preferences,
     build_history_context
 )
+from browse_ui import run_browse_ui
 
 # Load environment variables
 load_dotenv(override=True)
@@ -2096,6 +2097,13 @@ def main():
     # Store in session state so dialog can access it
     st.session_state.ui_translations = ui
 
+    # --- Browse mode takeover ---
+    # When the user clicks "Browse games" in the bottom bar, we hide the
+    # chat UI and render the recommendation flow instead.
+    if st.session_state.get("browse_mode"):
+        run_browse_ui()
+        return
+
     # Header
     st.title("🎲 The Merry Meeple")
     st.markdown(f"*{ui.get('subtitle', 'Your game night assistant — browse our game library, learn the rules, check out the menu, and more.')}*")
@@ -2327,7 +2335,10 @@ Keep it to 1-2 sentences. Don't mention their phone number.
         cols = st.columns(4)
         with cols[0]:
             if st.button(f"🎮 {ui.get('browse_games', 'Browse games')}", use_container_width=True, key="btn_games"):
-                st.session_state.pending_quick_action = "What games do you have?"
+                # Clear any leftover browse state from a prior session before entering fresh
+                from browse_ui import reset_browse_state
+                reset_browse_state()
+                st.session_state.browse_mode = True
                 st.rerun()
         with cols[1]:
             if st.button(f"📖 {ui.get('rules_help', 'Rules help')}", use_container_width=True, key="btn_rules"):
