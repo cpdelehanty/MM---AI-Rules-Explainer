@@ -138,15 +138,21 @@ def back_step():
 MOBILE_CSS = """
 <style>
 .browse-title { font-size: 1.4rem; font-weight: 600; margin: 0.2rem 0 0.6rem 0; }
-.browse-step  { font-size: 0.85rem; color: #888; margin-bottom: 0.5rem; }
-.browse-help  { font-size: 0.95rem; color: #ccc; margin-bottom: 1rem; }
+/* Theme-aware muted colors that work in light and dark mode */
+.browse-step  { font-size: 0.85rem; opacity: 0.6; margin-bottom: 0.5rem; }
+.browse-help  { font-size: 0.95rem; opacity: 0.75; margin-bottom: 1rem; }
 .game-pill    {
   display: inline-block; padding: 2px 10px; margin: 2px;
-  border-radius: 10px; background: #2a2a3a; font-size: 0.8rem;
+  border-radius: 10px;
+  background: rgba(128,128,128,0.18);
+  color: inherit;
+  font-size: 0.8rem;
 }
 .game-rank-badge {
   display: inline-block; padding: 1px 8px; border-radius: 8px;
-  background: #4a3a6a; color: #fff; font-size: 0.75rem; font-weight: 600;
+  background: rgba(120, 90, 180, 0.5);
+  color: inherit;
+  font-size: 0.75rem; font-weight: 600;
 }
 </style>
 """
