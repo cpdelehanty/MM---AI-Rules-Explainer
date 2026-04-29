@@ -273,6 +273,13 @@ RANK_WEIGHTS = {
     "user_theme_match":         0.4,   # Phase 2: themes the user has thumbed-up
     "user_mechanic_match":      0.4,   # Phase 2: mechanics the user has thumbed-up
     "anchor_similarity":        2.0,   # weight applied to score_like in like-X path
+    # Soft query preferences from natural-language parse — apply even when
+    # the corresponding hard filter has been relaxed away
+    "query_category_match":     0.6,
+    "query_mechanic_match":     0.6,
+    "query_theme_match":        0.6,
+    "query_complexity_fit":     0.5,
+    "query_playtime_fit":       0.4,
 }
 
 
@@ -294,13 +301,20 @@ def _player_count_in(ranges, party_size):
 
 
 def rank_score(game, party_size=None, user_themes=None, user_mechanics=None,
-               anchor_similarity=0.0):
+               anchor_similarity=0.0, query_prefs=None):
     """
     Composite ranking score for a single game in a given context.
 
-    Without any context (party_size=None, no user data, no anchor), this
-    reduces to a normalized geek-rating sort. Each context dimension layers
-    on additional weight.
+    `query_prefs` is the FULL parsed query (before any filter relaxation),
+    so even when a hard filter is dropped to widen results, games that
+    match the original ask still rank higher.
+        {
+          "bgg_categories": ["Science Fiction"],
+          "mechanics": ["Deck Building"],
+          "themes": ["Theme: Space"],
+          "complexity_max": 2.0,
+          "playtime_max": 60,
+        }
     """
     geek = (game.get("geek_rating") or 0) / 10.0  # roughly 0.55 - 0.85
     score = RANK_WEIGHTS["geek_rating"] * geek
@@ -320,16 +334,41 @@ def rank_score(game, party_size=None, user_themes=None, user_mechanics=None,
         overlap = len(set(game.get("mechanics") or []) & set(user_mechanics))
         score += min(overlap / 3.0, 1.0) * RANK_WEIGHTS["user_mechanic_match"]
 
+    if query_prefs:
+        if query_prefs.get("bgg_categories"):
+            game_cats = set(game.get("categories") or [])
+            if game_cats & set(query_prefs["bgg_categories"]):
+                score += RANK_WEIGHTS["query_category_match"]
+        if query_prefs.get("mechanics"):
+            game_mechs = set(game.get("mechanics") or [])
+            if game_mechs & set(query_prefs["mechanics"]):
+                score += RANK_WEIGHTS["query_mechanic_match"]
+        if query_prefs.get("themes"):
+            game_themes = set(game.get("themes") or [])
+            if game_themes & set(query_prefs["themes"]):
+                score += RANK_WEIGHTS["query_theme_match"]
+        cmax = query_prefs.get("complexity_max")
+        if cmax is not None and game.get("complexity") is not None:
+            if game["complexity"] <= cmax:
+                score += RANK_WEIGHTS["query_complexity_fit"]
+        pmax = query_prefs.get("playtime_max")
+        if pmax is not None:
+            game_pt = game.get("playtime") or game.get("max_playtime")
+            if game_pt is not None and game_pt <= pmax:
+                score += RANK_WEIGHTS["query_playtime_fit"]
+
     score += RANK_WEIGHTS["anchor_similarity"] * anchor_similarity
     return score
 
 
-def rank_games(games, party_size=None, user_themes=None, user_mechanics=None):
+def rank_games(games, party_size=None, user_themes=None, user_mechanics=None,
+               query_prefs=None):
     """Sort `games` in place by `rank_score` descending. Returns the list."""
     games.sort(
         key=lambda g: -rank_score(g, party_size=party_size,
                                    user_themes=user_themes,
-                                   user_mechanics=user_mechanics),
+                                   user_mechanics=user_mechanics,
+                                   query_prefs=query_prefs),
     )
     return games
 

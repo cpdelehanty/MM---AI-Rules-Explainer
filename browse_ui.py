@@ -64,6 +64,7 @@ DEFAULT_STATE = {
     "browse_show_more_chips": False,
     "browse_show_full_desc": False,
     "browse_summary": None,             # Claude's interpretation of the freeform query
+    "browse_query_prefs": None,         # full parsed signals (for ranking, even after relaxation)
 }
 
 
@@ -139,6 +140,7 @@ def back_step():
                 st.session_state.browse_hub_path = None
                 st.session_state.browse_anchor_name = None
                 st.session_state.browse_summary = None
+                st.session_state.browse_query_prefs = None
             go_to_step(flow[i - 1])
         else:
             reset_browse_state()
@@ -334,7 +336,9 @@ def _render_list():
 
     user_id = st.session_state.get("rec_user_id")
     user_themes = popular_themes_for_user(user_id) if user_id else None
-    rank_games(results, party_size=party, user_themes=user_themes)
+    qprefs = st.session_state.get("browse_query_prefs")
+    rank_games(results, party_size=party, user_themes=user_themes,
+               query_prefs=qprefs)
 
     summary = st.session_state.get("browse_summary")
     if summary:
@@ -489,6 +493,21 @@ def _handle_freeform_query(query, all_games):
     summary = parsed["summary"] or ""
     party = st.session_state.browse_party_size
     family = st.session_state.browse_family
+
+    # Capture full parsed signals for ranking (kept even when filters relax)
+    qprefs = {"bgg_categories": [], "mechanics": [], "themes": []}
+    for f in parsed["filters"]:
+        if f["type"] == "bgg_category":
+            qprefs["bgg_categories"].append(f["value"])
+        elif f["type"] == "mechanic":
+            qprefs["mechanics"].append(f["value"])
+        elif f["type"] == "theme":
+            qprefs["themes"].append(f["value"])
+        elif f["type"] == "complexity_max":
+            qprefs["complexity_max"] = f["value"]
+        elif f["type"] == "playtime_max":
+            qprefs["playtime_max"] = f["value"]
+    st.session_state.browse_query_prefs = qprefs
 
     if parsed["filters"]:
         kept, dropped, _ = relax_filters_to_min(
