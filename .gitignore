@@ -14,3 +14,8 @@ rulebooks/
 
 # Backup files
 *.bak
+
+# Groundedness test outputs (large per-question records — regenerable)
+groundedness_results.json
+groundedness_results.json.tmp
+groundedness_summary.csv
