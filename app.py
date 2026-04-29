@@ -38,7 +38,7 @@ from browse_ui import run_browse_ui
 load_dotenv(override=True)
 
 # Configuration
-TOP_K_RESULTS = 5
+TOP_K_RESULTS = 8
 
 
 # --- Admin integration (session tracking + kill check) ---
@@ -830,10 +830,13 @@ Rules for answering:
   Example: "According to the FAQ, nectar tokens can be spent as wild food (FAQ p. 2)"
   Example: "The rulebook states each player draws 5 cards (Rulebook p. 3)"
 - If information comes from multiple sources, cite all: "This is covered in both the Rulebook (p. 5) and clarified in the FAQ (p. 2)"
-- If the answer isn't in any of the provided sources, say "I don't see that information in the materials I have access to. Would you like me to request staff assistance?"
+- ANSWER USING THE CHUNKS even if the question's exact wording doesn't appear in them. If a chunk describes the relevant mechanic, action, phase, or component, use it to answer — don't require the question's keywords to literally appear in the source. Example: a question about "what happens to canal connections in the rail era" is answered by chunks describing "canal Links being scored and removed at end of each era."
+- DO NOT INFER OR EXTEND RULES with general board-game logic. If the chunks don't state or clearly imply something, say so — don't fill in plausible-sounding gaps. Don't generalize a specific rule (e.g. one icon's behavior) to a broader category. Don't combine partial information from multiple chunks unless they explicitly connect.
+- READ QUALIFIERS CAREFULLY: "once per round" ≠ "once per turn"; "optional" ≠ "mandatory"; "instead of" ≠ "in addition to". Never paraphrase past these qualifiers.
+- WHEN ASKED ABOUT QUANTITIES (cubes, cards, tokens, components), quote the exact number from the chunk. Don't sum or split numbers across categories unless the chunk explicitly does so.
+- DEFERRING IS A LAST RESORT — only say "I don't see that information in the materials I have access to. Would you like me to request staff assistance?" when NONE of the chunks describe the relevant rule, mechanic, phase, or component. If a chunk covers the topic in different words, answer using it.
 - If the customer responds with just "yes" or "yes please" after you've offered staff assistance, remind them: "Please click the '📞 Yes, get help' button above to notify staff. I can't send the notification through chat messages."
 - If the question is unclear, ask ONE clarifying question
-- Never make up rules that aren't in the source documents
 - NEVER say you've notified staff unless the customer clicked the actual button
 
 STAFF NOTIFICATION:
@@ -1132,7 +1135,7 @@ def translate_login_text(language, _api_key):
             max_tokens=1000,
             messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation.
 
-{{"welcome": "Welcome! Enter your phone number to get started.", "phone_label": "Phone number", "phone_placeholder": "(718) 555-1234", "lets_go": "Let's go!", "error_invalid": "Please enter a valid 10-digit phone number.", "error_empty": "Please enter your phone number or 999 to continue as a guest.", "setting_up": "Setting up your experience..."}}"""}]
+{{"welcome": "Welcome! Enter your phone number to get started.", "phone_label": "Phone number", "phone_placeholder": "(718) 555-1234", "lets_go": "Let's go!", "error_invalid": "Please enter a valid 10-digit phone number.", "error_empty": "Please enter your phone number or 999 to continue as a guest.", "setting_up": "Setting up your experience...", "privacy_link": "How is my info used?", "privacy_close": "Got it"}}"""}]
         )
         text = result.content[0].text.strip()
         if text.startswith("```"):
@@ -1260,6 +1263,17 @@ PING_REASON_LABELS = {
     "general_help": "General help",
     "new_game": "New game request",
 }
+
+
+@st.dialog("How your info is used")
+def open_privacy_dialog():
+    """Show the phone-gate data-usage explanation as a modal."""
+    text = st.session_state.get("login_translations", {}).get("privacy_text") or PHONE_GATE_TEXT
+    st.markdown(text)
+    close_label = (st.session_state.get("login_translations", {})
+                   .get("privacy_close", "Got it"))
+    if st.button(close_label, use_container_width=True, key="privacy_close"):
+        st.rerun()
 
 
 @st.dialog("Notify Staff?")
@@ -2012,7 +2026,13 @@ def main():
             t = {}
 
         st.markdown(t.get("welcome", "Welcome! Enter your phone number to get started."))
-        st.markdown(t.get("privacy_text", PHONE_GATE_TEXT))
+
+        # Stash translations so the privacy dialog can pull them
+        st.session_state["login_translations"] = t
+
+        if st.button(t.get("privacy_link", "How is my info used?"),
+                     key="open_privacy", type="tertiary"):
+            open_privacy_dialog()
 
         with st.form("phone_gate_form"):
             phone_input = st.text_input(
