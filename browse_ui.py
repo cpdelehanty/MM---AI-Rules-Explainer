@@ -79,6 +79,14 @@ def _filter_pretty(f):
     """Display label for an active filter chip."""
     if f["type"] == "playtime_max":
         return f"Under {f['value']} min"
+    if f["type"] == "complexity_max":
+        v = float(f['value'])
+        if v <= 2.0:
+            return "Light/Simple"
+        elif v <= 3.0:
+            return "Medium weight"
+        else:
+            return f"Weight ≤ {v:.1f}"
     label = {
         "cafe_category": "Category",
         "bgg_category":  "Category",

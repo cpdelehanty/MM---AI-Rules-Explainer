@@ -134,7 +134,8 @@ def passes_family_filter(game, family_filter):
 
 def filter_games(games, party_size=None, family_filter=None,
                  cafe_category=None, bgg_category=None, mechanic=None,
-                 theme=None, playtime_max=None, in_stock_only=True):
+                 theme=None, playtime_max=None, complexity_max=None,
+                 in_stock_only=True):
     """Apply zero or more filter dimensions. Empty filters are no-ops."""
     out = []
     for g in games:
@@ -157,6 +158,10 @@ def filter_games(games, party_size=None, family_filter=None,
         if playtime_max is not None:
             t = g.get("playtime") or g.get("max_playtime") or g.get("min_playtime")
             if t is not None and t > playtime_max:
+                continue
+        if complexity_max is not None:
+            c = g.get("complexity")
+            if c is not None and c > complexity_max:
                 continue
         out.append(g)
     return out
@@ -417,6 +422,14 @@ def parse_freeform_query(query, anthropic_client, all_games=None):
     theme_set = {t for g in all_games for t in (g.get("themes") or []) if is_thematic(t)}
     name_set = {g["name"] for g in all_games}
 
+    # Top BGG categories from our actual library — Claude picks from this list
+    from collections import Counter
+    bgg_cat_counter = Counter()
+    for g in all_games:
+        for c in (g.get("categories") or []):
+            bgg_cat_counter[c] += 1
+    top_bgg_cats = [c for c, _ in bgg_cat_counter.most_common(40)]
+
     prompt = (
         "You are parsing a customer's natural-language request for a board "
         "game recommendation at a board-game cafe. Extract structured "
@@ -430,28 +443,34 @@ def parse_freeform_query(query, anthropic_client, all_games=None):
         '  "mechanics": [],\n'
         '  "themes": [],\n'
         '  "playtime_max": null,\n'
+        '  "complexity_max": null,\n'
         '  "anchor_games": [],\n'
         '  "summary": ""\n'
         "}\n\n"
-        "Guidance:\n"
+        "Field guidance:\n"
         "- cafe_categories: pick at most one of: Party, Mid-Weight Strategy, "
         "Heavy Strategy, Family, Cooperative, Gateway Strategy, "
         "Thematic / Adventure, Social Deduction, Two-Player, Kids, "
         "Word / Trivia / Dex.\n"
+        f"- bgg_categories: pick 0-2 from this exact list:\n  {top_bgg_cats}\n"
+        "  Prefer this list over inventing new ones. 'sci-fi' / 'science "
+        "fiction' -> 'Science Fiction'. 'fantasy' -> 'Fantasy'. "
+        "Only pick 'Wargame' for explicit combat/military, NOT for "
+        "'historical'.\n"
         "- mechanics: short BGG-style names like 'Deck Building', "
         "'Worker Placement', 'Tile Placement'. At most 2. Skip if vague.\n"
-        "- themes: short SPECIFIC topic words like 'Western', 'Fantasy', "
-        "'Space', 'Horror', 'Pirates'. At most 2. NEVER pick 'Various' or "
-        "vague catchalls.\n"
-        "- bgg_categories: ONLY pick if explicitly named or strongly "
-        "implied. 'Historical' alone does NOT mean 'Wargame' — only pick "
-        "Wargame if the customer asked for combat/military strategy. "
-        "Prefer empty over guessing. At most 1.\n"
-        "- playtime_max: integer minutes, IF the customer hinted at "
-        "duration. 'quick' / 'short' -> 45, 'medium' -> 90, otherwise null.\n"
-        "- anchor_games: 0-3 specific game names that would match the "
-        "description. Use your knowledge freely — we fuzzy-match against "
-        "the cafe's library.\n"
+        "- themes: short SPECIFIC topic words like 'Western', 'Pirates', "
+        "'Mars'. At most 2. NEVER pick 'Various' or vague catchalls. "
+        "When the user mentions a broad genre like sci-fi/fantasy that "
+        "is already in bgg_categories, leave themes empty.\n"
+        "- playtime_max: integer minutes when duration is hinted at. "
+        "'quick' / 'short' -> 45, 'medium' -> 90. Else null.\n"
+        "- complexity_max: BGG weight on 1-5 scale, when the user signals "
+        "low complexity. 'simple', 'easy', 'light', 'simple instructions',"
+        " 'quick to learn', 'casual' -> 2.0. 'medium' -> 3.0. "
+        "Else null.\n"
+        "- anchor_games: 0-3 specific game names that would match. Use your "
+        "knowledge freely — we fuzzy-match against the cafe's library.\n"
         "- summary: one short sentence rephrasing the request.\n\n"
         "When in doubt, leave a field empty. The customer can refine "
         "later — over-filtering causes empty results."
@@ -582,6 +601,15 @@ def _resolve_parsed_query(parsed, cafe_cats, bgg_cats, mechanics, themes, names)
     if pmax:
         filters.append({"type": "playtime_max", "value": pmax})
 
+    # Complexity cap (BGG weight, 1.0-5.0)
+    cmax = parsed.get("complexity_max")
+    try:
+        cmax = float(cmax) if cmax is not None else None
+    except (TypeError, ValueError):
+        cmax = None
+    if cmax:
+        filters.append({"type": "complexity_max", "value": cmax})
+
     anchors = []
     for g in parsed.get("anchor_games", []) or []:
         # Try fuzzy match against cafe library names
@@ -596,11 +624,26 @@ def _resolve_parsed_query(parsed, cafe_cats, bgg_cats, mechanics, themes, names)
     }
 
 
+# Lower priority = dropped first when relaxation is needed. Cafe categories
+# are the broadest (often AI-inferred from a vibe), while playtime / complexity
+# are usually explicit user signals worth preserving.
+RELAX_PRIORITY = {
+    "cafe_category":   1,
+    "mechanic":        2,
+    "bgg_category":    3,
+    "theme":           4,
+    "playtime_max":    5,
+    "complexity_max":  6,
+}
+
+
 def relax_filters_to_min(filters, all_games, party_size=None,
                          family_filter=None, min_results=3):
     """
-    Apply `filters` (AND-stacked) and drop them one at a time (last-first)
-    until the filtered list has at least `min_results` games. Returns
+    Apply `filters` (AND-stacked) and drop them one at a time until the
+    filtered list has at least `min_results` games. Drop order is by
+    `RELAX_PRIORITY` ascending — broad/inferred filters go first, explicit
+    user signals (playtime, complexity) survive longest. Returns
     (kept_filters, dropped_filters, results).
 
     The base filters (party_size, family) are NEVER dropped — those are
@@ -618,7 +661,9 @@ def relax_filters_to_min(filters, all_games, party_size=None,
         return out
 
     while kept and len(_apply(kept)) < min_results:
-        dropped.append(kept.pop())  # drop the last (least core) filter
+        # Drop the lowest-priority filter (broadest/most-inferred)
+        kept.sort(key=lambda f: RELAX_PRIORITY.get(f["type"], 99))
+        dropped.append(kept.pop(0))
 
     return kept, dropped, _apply(kept)
 
