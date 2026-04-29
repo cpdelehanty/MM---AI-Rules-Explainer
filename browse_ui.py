@@ -516,19 +516,9 @@ def _handle_freeform_query(query, all_games):
         )
         st.session_state.browse_hub_path = None
         if dropped and not kept and parsed["anchors"]:
-            # Filters all dropped — fall back to anchor similarity
+            # All filters dropped — fall back to anchor similarity
             st.session_state.browse_filters = []
             st.session_state.browse_anchor_name = parsed["anchors"][0]
-            summary += (f" (no precise matches — showing games similar to "
-                        f"{parsed['anchors'][0]})")
-        elif dropped and not kept:
-            st.session_state.browse_filters = []
-            summary += (" (no precise matches — showing top picks for your "
-                        "group instead)")
-        elif dropped:
-            st.session_state.browse_filters = kept
-            dropped_names = ", ".join(_filter_pretty(f) for f in dropped)
-            summary += f" (relaxed: {dropped_names})"
         else:
             st.session_state.browse_filters = kept
     elif parsed["anchors"]:
