@@ -5,12 +5,15 @@ Run this script whenever you add new PDFs
 """
 
 import os
+import re
+import sqlite3
 import time
 from pypdf import PdfReader
 import tiktoken
 import voyageai
 from dotenv import load_dotenv
-from database import init_database, game_exists, add_game, get_all_games, get_library_stats, file_already_processed
+from database import init_database, game_exists, add_game, get_all_games, get_library_stats, file_already_processed, DB_PATH
+from rulebook_aliases import ALIASES
 
 # Load environment variables
 load_dotenv()
@@ -24,17 +27,17 @@ RATE_LIMIT_DELAY = 25  # Wait 25 seconds between API calls (free tier = 3 RPM)
 def extract_game_title_from_filename(filename):
     """
     Convert filename to game title, combining related documents
-    
+
     Examples:
         wingspan-rulebook.pdf → Wingspan
-        wingspan-faq.pdf → Wingspan  
+        wingspan-faq.pdf → Wingspan
         Wingspan - Rulebook.pdf → Wingspan
         Wingspan - FAQ.pdf → Wingspan
         catan.pdf → Catan
     """
     # Remove .pdf extension
     title = filename.replace('.pdf', '')
-    
+
     # Handle different separator styles
     separators = [' - ', '-', '_']
     for sep in separators:
@@ -42,13 +45,63 @@ def extract_game_title_from_filename(filename):
             # Take everything before the separator as the base game name
             title = title.split(sep)[0]
             break
-    
+
     # Clean up and title case
     title = title.strip()
     title = title.replace('_', ' ').replace('-', ' ')
     title = title.title()
-    
+
     return title
+
+
+def _normalize(s):
+    """
+    Lowercase, fold accents (é -> e), strip non-alphanumerics.
+    Used for fuzzy name matching where 'Orléans' should equal 'Orleans'.
+    """
+    import unicodedata
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", "", s.lower())
+
+
+def resolve_to_cafe_name(derived_title):
+    """
+    Map a filename-derived title to its canonical cafe_games.name.
+
+    Resolution order:
+        1. Manual alias from rulebook_aliases.ALIASES
+        2. Exact case-sensitive match against cafe_games.name
+        3. Case+punctuation-insensitive match (`Brass Lancashire` -> `Brass: Lancashire`)
+        4. Fall through to derived_title (rulebook is not in the cafe library)
+
+    The returned title is what gets stored as games.title, ensuring the
+    rules-assistant game and the cafe_games row share the same key.
+    """
+    if derived_title in ALIASES:
+        return ALIASES[derived_title]
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM cafe_games")
+        cafe_names = [r[0] for r in cur.fetchall()]
+        conn.close()
+    except sqlite3.OperationalError:
+        # cafe_games table may not exist yet (e.g. fresh DB)
+        return derived_title
+
+    if derived_title in cafe_names:
+        return derived_title
+
+    norm_target = _normalize(derived_title)
+    for n in cafe_names:
+        if _normalize(n) == norm_target:
+            return n
+
+    return derived_title
 
 def get_document_type(filename):
     """
@@ -153,11 +206,16 @@ def create_embeddings(chunks, voyage_client):
 def process_pdf(pdf_path, voyage_client):
     """Process a single PDF file"""
     filename = os.path.basename(pdf_path)
-    base_game_title = extract_game_title_from_filename(filename)
+    derived_title = extract_game_title_from_filename(filename)
+    base_game_title = resolve_to_cafe_name(derived_title)
     doc_type = get_document_type(filename)
-    
+
     print(f"\n📖 Processing: {filename}")
-    print(f"   → Base game: {base_game_title}")
+    if base_game_title != derived_title:
+        print(f"   → Derived: {derived_title!r}")
+        print(f"   → Linked to cafe_games: {base_game_title!r}")
+    else:
+        print(f"   → Base game: {base_game_title}")
     print(f"   → Type: {doc_type}")
     
     # Check if this exact file was already processed
