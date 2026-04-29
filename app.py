@@ -2030,19 +2030,38 @@ def main():
 
         welcome = t.get("welcome", "Welcome! Enter your phone number to get started.")
         privacy_link = t.get("privacy_link", "How is my info used?")
-        # Inline blue link on the same line as the welcome sentence —
-        # clicking sets ?privacy=1, which we detect on rerun to open the dialog.
+
+        # Style the tertiary "privacy" button so it reads like an inline
+        # parenthetical hyperlink (small + blue + underlined), and pull
+        # it visually onto the same line as the welcome text.
         st.markdown(
-            f"{welcome} "
-            f"<a href='?privacy=1' target='_self' "
-            f"style='color:#3b82f6; font-size:0.85em; text-decoration:underline;'>"
-            f"({privacy_link})</a>",
+            """
+            <style>
+              [data-testid="stButton"] button[kind="tertiary"][data-testid*="open_privacy"] {
+                color: #3b82f6 !important;
+                text-decoration: underline !important;
+                font-size: 0.85rem !important;
+                padding: 0 !important;
+                margin-top: -1.4rem !important;
+                margin-left: 0.25rem !important;
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                min-height: 0 !important;
+                line-height: 1.4 !important;
+                font-weight: 400 !important;
+              }
+            </style>
+            """,
             unsafe_allow_html=True,
         )
-
-        if st.query_params.get("privacy") == "1":
-            del st.query_params["privacy"]
-            open_privacy_dialog()
+        # Render welcome and button in the same horizontal row.
+        col_w, col_l = st.columns([4, 3])
+        with col_w:
+            st.markdown(welcome)
+        with col_l:
+            if st.button(f"({privacy_link})", key="open_privacy", type="tertiary"):
+                open_privacy_dialog()
 
         with st.form("phone_gate_form"):
             phone_input = st.text_input(
