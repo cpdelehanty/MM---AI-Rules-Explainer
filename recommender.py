@@ -134,7 +134,7 @@ def passes_family_filter(game, family_filter):
 
 def filter_games(games, party_size=None, family_filter=None,
                  cafe_category=None, bgg_category=None, mechanic=None,
-                 theme=None, in_stock_only=True):
+                 theme=None, playtime_max=None, in_stock_only=True):
     """Apply zero or more filter dimensions. Empty filters are no-ops."""
     out = []
     for g in games:
@@ -153,6 +153,10 @@ def filter_games(games, party_size=None, family_filter=None,
         if theme:
             game_themes = [t for t in (g.get("themes") or []) if is_thematic(t)]
             if theme not in game_themes:
+                continue
+        if playtime_max is not None:
+            t = g.get("playtime") or g.get("max_playtime") or g.get("min_playtime")
+            if t is not None and t > playtime_max:
                 continue
         out.append(g)
     return out
@@ -202,10 +206,24 @@ NON_THEMATIC_PREFIXES = (
 )
 
 
+# Single-token themes that BGG uses as catch-alls — useless as filter chips
+NOISY_THEMES = {
+    "Various",
+    "Theme: Various",
+    "Setting: Various",
+    "Theme: None",
+    "Animals: Various",
+}
+
+
 def is_thematic(family_str):
     if not family_str:
         return False
-    return not family_str.startswith(NON_THEMATIC_PREFIXES)
+    if family_str in NOISY_THEMES:
+        return False
+    if family_str.startswith(NON_THEMATIC_PREFIXES):
+        return False
+    return True
 
 
 def top_themes(games=None, limit=8):
@@ -402,7 +420,8 @@ def parse_freeform_query(query, anthropic_client, all_games=None):
     prompt = (
         "You are parsing a customer's natural-language request for a board "
         "game recommendation at a board-game cafe. Extract structured "
-        "preferences.\n\n"
+        "preferences. PREFER FEWER, MORE ACCURATE FILTERS over many broad "
+        "ones — a wrong filter is worse than no filter.\n\n"
         f"Customer said: {query!r}\n\n"
         "Respond with JSON ONLY in this shape (no prose, no code fences):\n"
         "{\n"
@@ -410,6 +429,7 @@ def parse_freeform_query(query, anthropic_client, all_games=None):
         '  "bgg_categories": [],\n'
         '  "mechanics": [],\n'
         '  "themes": [],\n'
+        '  "playtime_max": null,\n'
         '  "anchor_games": [],\n'
         '  "summary": ""\n'
         "}\n\n"
@@ -419,18 +439,22 @@ def parse_freeform_query(query, anthropic_client, all_games=None):
         "Thematic / Adventure, Social Deduction, Two-Player, Kids, "
         "Word / Trivia / Dex.\n"
         "- mechanics: short BGG-style names like 'Deck Building', "
-        "'Worker Placement', 'Tile Placement' — at most 3.\n"
-        "- themes: short topic words like 'Western', 'Fantasy', "
-        "'Space', 'Horror' — at most 3.\n"
-        "- bgg_categories: BGG-style category names like 'Economic', "
-        "'Wargame' — at most 2.\n"
-        "- anchor_games: 0-2 specific game names from popular tabletop "
-        "games that would match the description, even if unsure of the "
-        "cafe's stock.\n"
-        "- summary: one short sentence rephrasing the request.\n"
-        "Use your knowledge of board games freely; we'll fuzzy-match your "
-        "values against the cafe's vocabulary, so don't worry about "
-        "exact strings."
+        "'Worker Placement', 'Tile Placement'. At most 2. Skip if vague.\n"
+        "- themes: short SPECIFIC topic words like 'Western', 'Fantasy', "
+        "'Space', 'Horror', 'Pirates'. At most 2. NEVER pick 'Various' or "
+        "vague catchalls.\n"
+        "- bgg_categories: ONLY pick if explicitly named or strongly "
+        "implied. 'Historical' alone does NOT mean 'Wargame' — only pick "
+        "Wargame if the customer asked for combat/military strategy. "
+        "Prefer empty over guessing. At most 1.\n"
+        "- playtime_max: integer minutes, IF the customer hinted at "
+        "duration. 'quick' / 'short' -> 45, 'medium' -> 90, otherwise null.\n"
+        "- anchor_games: 0-3 specific game names that would match the "
+        "description. Use your knowledge freely — we fuzzy-match against "
+        "the cafe's library.\n"
+        "- summary: one short sentence rephrasing the request.\n\n"
+        "When in doubt, leave a field empty. The customer can refine "
+        "later — over-filtering causes empty results."
     )
 
     raw = anthropic_client.messages.create(
@@ -549,6 +573,15 @@ def _resolve_parsed_query(parsed, cafe_cats, bgg_cats, mechanics, themes, names)
     # Drop entries where the match resolved to None
     filters = [f for f in filters if f["value"]]
 
+    # Playtime cap (integer minutes)
+    pmax = parsed.get("playtime_max")
+    try:
+        pmax = int(pmax) if pmax is not None else None
+    except (TypeError, ValueError):
+        pmax = None
+    if pmax:
+        filters.append({"type": "playtime_max", "value": pmax})
+
     anchors = []
     for g in parsed.get("anchor_games", []) or []:
         # Try fuzzy match against cafe library names
@@ -561,6 +594,33 @@ def _resolve_parsed_query(parsed, cafe_cats, bgg_cats, mechanics, themes, names)
         "anchors": anchors,
         "summary": parsed.get("summary") or "",
     }
+
+
+def relax_filters_to_min(filters, all_games, party_size=None,
+                         family_filter=None, min_results=3):
+    """
+    Apply `filters` (AND-stacked) and drop them one at a time (last-first)
+    until the filtered list has at least `min_results` games. Returns
+    (kept_filters, dropped_filters, results).
+
+    The base filters (party_size, family) are NEVER dropped — those are
+    user-set hard requirements.
+    """
+    base = filter_games(all_games, party_size=party_size,
+                        family_filter=family_filter)
+    kept = list(filters)
+    dropped = []
+
+    def _apply(fs):
+        out = base
+        for f in fs:
+            out = filter_games(out, **{f["type"]: f["value"]})
+        return out
+
+    while kept and len(_apply(kept)) < min_results:
+        dropped.append(kept.pop())  # drop the last (least core) filter
+
+    return kept, dropped, _apply(kept)
 
 
 def fuzzy_find_anchor(query, all_games=None):

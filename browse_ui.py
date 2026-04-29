@@ -15,7 +15,7 @@ from recommender import (
     get_all_games, get_game_by_id, filter_games, find_similar,
     top_cafe_categories, top_bgg_categories, top_mechanics, top_themes,
     fuzzy_find_anchor, rank_games, popular_themes_for_user,
-    parse_freeform_query, FAMILY_FILTERS,
+    parse_freeform_query, relax_filters_to_min, FAMILY_FILTERS,
 )
 from database_recs import (
     save_preferences, log_recommendation, mark_recommendation_selected,
@@ -77,8 +77,11 @@ def _filters_apply(games, filters):
 
 def _filter_pretty(f):
     """Display label for an active filter chip."""
+    if f["type"] == "playtime_max":
+        return f"Under {f['value']} min"
     label = {
         "cafe_category": "Category",
+        "bgg_category":  "Category",
         "theme":         "Theme",
         "mechanic":      "Mechanic",
     }.get(f["type"], f["type"])
@@ -470,15 +473,42 @@ def _handle_freeform_query(query, all_games):
         )
         return
 
-    # Apply filters + optional anchor
+    # Apply filters with relaxation. Ensure the user sees at least 3 games:
+    #   - If filters relax cleanly to 3+, show the filtered list.
+    #   - If all filters were dropped and we have an anchor, switch to anchor mode.
+    #   - Else (no filters, no anchor) leave filters empty so the list shows
+    #     all games that match party_size + family — never fewer than 3.
+    summary = parsed["summary"] or ""
+    party = st.session_state.browse_party_size
+    family = st.session_state.browse_family
+
     if parsed["filters"]:
-        st.session_state.browse_filters = list(parsed["filters"])
-        # Switch to a chip-driven list view (no anchor mode)
+        kept, dropped, _ = relax_filters_to_min(
+            parsed["filters"], all_games,
+            party_size=party, family_filter=family, min_results=3,
+        )
         st.session_state.browse_hub_path = None
-    if parsed["anchors"] and not parsed["filters"]:
+        if dropped and not kept and parsed["anchors"]:
+            # Filters all dropped — fall back to anchor similarity
+            st.session_state.browse_filters = []
+            st.session_state.browse_anchor_name = parsed["anchors"][0]
+            summary += (f" (no precise matches — showing games similar to "
+                        f"{parsed['anchors'][0]})")
+        elif dropped and not kept:
+            st.session_state.browse_filters = []
+            summary += (" (no precise matches — showing top picks for your "
+                        "group instead)")
+        elif dropped:
+            st.session_state.browse_filters = kept
+            dropped_names = ", ".join(_filter_pretty(f) for f in dropped)
+            summary += f" (relaxed: {dropped_names})"
+        else:
+            st.session_state.browse_filters = kept
+    elif parsed["anchors"]:
         st.session_state.browse_anchor_name = parsed["anchors"][0]
-    if parsed["summary"]:
-        st.session_state["browse_summary"] = parsed["summary"]
+
+    if summary:
+        st.session_state["browse_summary"] = summary
     st.rerun()
 
 
