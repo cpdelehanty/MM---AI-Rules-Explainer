@@ -2067,6 +2067,8 @@ def main():
                 font-weight: 400 !important;
                 line-height: 1.4 !important;
                 vertical-align: baseline !important;
+                /* nudge up to align with the welcome paragraph baseline */
+                transform: translateY(-2px) !important;
               }
               .st-key-open_privacy button > div,
               .st-key-open_privacy button > div > p {
