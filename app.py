@@ -2037,10 +2037,12 @@ def main():
         st.markdown(
             """
             <style>
+              /* Style the privacy button to look like an inline link.
+                 Parens are added via ::before/::after so they don't get
+                 underlined along with the text. */
               .st-key-open_privacy button {
                 color: #3b82f6 !important;
-                text-decoration: underline !important;
-                font-size: 0.85rem !important;
+                font-size: 0.78rem !important;
                 padding: 0 !important;
                 margin: 0 !important;
                 background: transparent !important;
@@ -2051,9 +2053,29 @@ def main():
                 font-weight: 400 !important;
                 line-height: 1.4 !important;
               }
+              .st-key-open_privacy button > div,
+              .st-key-open_privacy button > div > p {
+                text-decoration: underline !important;
+                color: #3b82f6 !important;
+                margin: 0 !important;
+              }
+              .st-key-open_privacy button::before {
+                content: "(";
+                color: #3b82f6;
+                margin-right: 1px;
+              }
+              .st-key-open_privacy button::after {
+                content: ")";
+                color: #3b82f6;
+                margin-left: 1px;
+              }
               .st-key-open_privacy button:hover {
                 color: #1d4ed8 !important;
                 background: transparent !important;
+              }
+              .st-key-open_privacy button:hover > div,
+              .st-key-open_privacy button:hover > div > p {
+                color: #1d4ed8 !important;
               }
               .st-key-welcome_row [data-testid="stMarkdownContainer"] p {
                 margin: 0 !important;
@@ -2067,8 +2089,7 @@ def main():
         with st.container(key="welcome_row", horizontal=True,
                            vertical_alignment="center", gap="small"):
             st.markdown(welcome)
-            if st.button(f"({privacy_link})", key="open_privacy",
-                          type="tertiary"):
+            if st.button(privacy_link, key="open_privacy", type="tertiary"):
                 open_privacy_dialog()
 
         with st.form("phone_gate_form"):
