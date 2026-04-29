@@ -1165,16 +1165,37 @@ We'll also use this data in aggregate to build a better menu and games library. 
     return translations if translations else None
 
 @st.cache_data(ttl=86400)
+def translate_browse_ui(language, _api_key):
+    """Translate the browse / recommendation flow UI strings. Cached daily per language."""
+    client = Anthropic(api_key=_api_key)
+    try:
+        result = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation. Keep emojis and game names in English; translate everything else.
+
+{{"step_of": "Step {{n}} of 4", "how_many_players": "How many players?", "tap_party_size": "Tap your party size to start.", "party_solo": "1 (solo)", "audience_q": "Audience?", "party_summary": "Party of {{n}}. Pick what fits the group.", "party_summary_solo": "Solo. Pick what fits.", "family_friendly": "👨‍👩‍👧 Family-friendly", "all_audiences": "🎲 All audiences", "adults_only": "🍷 Adults only", "family_friendly_help": "Recommended ages 8 and under welcome", "all_audiences_help": "Mixed group; no age filter", "adults_only_help": "Edgier titles, ages 14+", "how_to_browse": "How do you want to browse?", "by_category": "🏷️ By Category — Strategy, Party, Family…", "by_theme": "🎭 By Theme — Fantasy, Sci-Fi, Animals…", "by_mechanic": "⚙️ By Mechanic — Drafting, Worker Placement…", "tell_me_what_you_want_btn": "✨ Tell me what you want…", "pick_a_category": "Pick a category", "pick_a_theme": "Pick a theme", "pick_a_mechanic": "Pick a mechanic", "no_options_left": "No options left under the current filters. Remove one above to widen the list.", "filters_label": "Filters:", "add_another_filter": "+ Add another filter", "games_match": "{{n}} games match.", "tell_me_title": "Tell me what you want", "tell_me_help": "Name a game you love, or describe what you're in the mood for — e.g. <em>'a deck builder with a western theme'</em>.", "search_btn": "Search", "looks_like_game": "Looks like a game name — tap to confirm:", "best_guesses": "Best guesses:", "couldnt_pin_down": "Couldn't pin that down. Try naming a game you love, or a mechanic/theme like 'cooperative dungeon crawler'.", "couldnt_parse": "Couldn't parse that — try rewording? ({{e}})", "needs_api_key": "Natural-language search needs an ANTHROPIC_API_KEY.", "finding_vibe": "Finding the right vibe…", "anchor_not_found": "Couldn't find '{{name}}' in our library.", "try_different_game": "← Try a different game", "games_like": "Games like {{name}}", "no_close_matches": "No close matches available right now for this group.", "best_with_n": "Best with {{n}} players", "tell_me_more": "Tell me more", "less": "Less", "pick_game": "🎯 Pick {{name}}", "more_like_this": "✨ More like this", "view_on_bgg": "View on BoardGameGeek ↗", "staff_notified_game": "Staff notified — bringing {{name}} to your table.", "back": "Back", "exit_to_chat": "Exit to chat", "reading_you_as": "Reading you as", "game_not_found": "Game not found.", "back_btn": "← Back", "unknown_step": "Unknown step: {{step}}", "reset": "Reset"}}"""}]
+        )
+        text = result.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        return json.loads(text)
+    except Exception as e:
+        print(f"[BROWSE UI TRANSLATE] Error: {e}")
+        return None
+
+
+@st.cache_data(ttl=86400)
 def translate_app_ui(language, _api_key):
     """Translate main app UI strings (buttons, headers, placeholders). Cached daily per language."""
     client = Anthropic(api_key=_api_key)
     try:
         result = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=500,
-            messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation.
+            max_tokens=1500,
+            messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation. Keep emojis and brand names (Merry Meeple) in English; translate everything else.
 
-{{"subtitle": "Your game night assistant — browse our game library, learn the rules, check out the menu, and more.", "browse_games": "Browse games", "rules_help": "Rules help", "order": "Order", "get_staff": "Get staff help", "chat_placeholder": "Ask about rules, the menu, or anything else...", "currently_helping": "Currently helping with", "pages": "Pages", "your_cart": "Your Cart", "cart_empty": "Your cart is empty — add items from the menu above!", "subtotal": "Subtotal", "place_order": "Place Order", "confirm_order": "Confirm Your Order", "confirm_order_btn": "Confirm Order", "go_back": "Go Back", "deals_for_you": "Deals for you", "almost_there": "Almost there", "apply": "Apply", "menu_empty": "Menu is currently unavailable. Please ask a staff member.", "add_to_order": "Add to Order", "choose_option": "Choose your option", "choose_flavors": "Choose your flavors", "quantity": "Quantity", "special_notes": "Special requests / notes", "notes_placeholder": "e.g. no onions, extra cheese, allergies...", "added_to_cart": "added to cart", "order_placed": "Order placed!", "total": "Total", "tax": "Tax", "discount": "Discount", "added_to_tab": "This will be added to your tab, which includes your table time and any other orders from this visit.", "cart_empty_error": "Your cart is empty.", "your_deals": "Your Deals", "before_you_order": "Before you order...", "add_more": "Add more items"}}"""}]
+{{"subtitle": "Your game night assistant — browse our game library, learn the rules, check out the menu, and more.", "browse_games": "Browse games", "rules_help": "Rules help", "order": "Order", "get_staff": "Get staff help", "chat_placeholder": "Ask about rules, the menu, or anything else...", "currently_helping": "Currently helping with", "pages": "Pages", "your_cart": "Your Cart", "cart_empty": "Your cart is empty — add items from the menu above!", "subtotal": "Subtotal", "place_order": "Place Order", "confirm_order": "Confirm Your Order", "confirm_order_btn": "Confirm Order", "go_back": "Go Back", "deals_for_you": "Deals for you", "almost_there": "Almost there", "apply": "Apply", "menu_empty": "Menu is currently unavailable. Please ask a staff member.", "add_to_order": "Add to Order", "choose_option": "Choose your option", "choose_flavors": "Choose your flavors", "quantity": "Quantity", "special_notes": "Special requests / notes", "notes_placeholder": "e.g. no onions, extra cheese, allergies...", "added_to_cart": "added to cart", "order_placed": "Order placed!", "total": "Total", "tax": "Tax", "discount": "Discount", "added_to_tab": "This will be added to your tab, which includes your table time and any other orders from this visit.", "cart_empty_error": "Your cart is empty.", "your_deals": "Your Deals", "before_you_order": "Before you order...", "add_more": "Add more items", "original_total": "Original Total", "total_discounts": "Total Discounts", "your_deal": "Your Deal", "session_ended": "Your session has been ended by staff. Please check with a staff member if you need assistance.", "start_new_session": "Start New Session", "no_games_yet": "📚 No games in library yet!", "no_games_staff_hint": "Staff: Run process_rulebooks.py to add games.", "ping_assistant_says": "The assistant thinks you could use some help: **{label}**", "ping_send_staff": "Would you like us to send a staff member to your table?", "ping_table_first": "We'll need your table number first (check the sticker on your table).", "ping_table_label": "Table number", "ping_table_placeholder": "e.g. 5", "ping_yes_notify": "🚨 Yes, notify staff", "ping_table_invalid_range": "Enter a number between 1 and 99.", "ping_table_invalid": "Please enter a valid table number.", "ping_no_im_fine": "No, I'm fine"}}"""}]
         )
         text = result.content[0].text.strip()
         if text.startswith("```"):
@@ -1283,35 +1304,47 @@ def open_staff_ping_dialog():
     if not pending:
         return  # Stale dialog — just render empty, Streamlit will close it
 
+    ui = st.session_state.get("ui_translations", {})
     idx = pending.get("idx")  # None for manual button presses
     reason = pending["reason"]
     label = PING_REASON_LABELS.get(reason, "Help")
 
     if idx is not None:
-        st.markdown(f"The assistant thinks you could use some help: **{label}**")
-    st.markdown("Would you like us to send a staff member to your table?")
+        assistant_says = ui.get("ping_assistant_says",
+                                 "The assistant thinks you could use some help: **{label}**")
+        st.markdown(assistant_says.format(label=label))
+    st.markdown(ui.get("ping_send_staff",
+                        "Would you like us to send a staff member to your table?"))
 
     # Collect table number if missing
     need_table = not st.session_state.get("table_number")
     table_val = None
     if need_table:
-        st.info("We'll need your table number first (check the sticker on your table).")
-        table_val = st.text_input("Table number", placeholder="e.g. 5", key="ping_dialog_table")
+        st.info(ui.get("ping_table_first",
+                        "We'll need your table number first (check the sticker on your table)."))
+        table_val = st.text_input(
+            ui.get("ping_table_label", "Table number"),
+            placeholder=ui.get("ping_table_placeholder", "e.g. 5"),
+            key="ping_dialog_table",
+        )
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🚨 Yes, notify staff", use_container_width=True, key="ping_dialog_yes"):
+        if st.button(ui.get("ping_yes_notify", "🚨 Yes, notify staff"),
+                     use_container_width=True, key="ping_dialog_yes"):
             if need_table:
                 try:
                     tbl_num = int((table_val or "").strip())
                     if not (1 <= tbl_num <= 99):
-                        st.error("Enter a number between 1 and 99.")
+                        st.error(ui.get("ping_table_invalid_range",
+                                         "Enter a number between 1 and 99."))
                         return
                     st.session_state.table_number = tbl_num
                     claim_table(st.session_state.visit_id,
                                 st.session_state.customer_phone, tbl_num)
                 except (ValueError, AttributeError):
-                    st.error("Please enter a valid table number.")
+                    st.error(ui.get("ping_table_invalid",
+                                     "Please enter a valid table number."))
                     return
 
             send_staff_ping(
@@ -1333,7 +1366,8 @@ def open_staff_ping_dialog():
             st.session_state._ping_dialog_opened = False
             st.rerun()
     with col2:
-        if st.button("No, I'm fine", use_container_width=True, key="ping_dialog_no"):
+        if st.button(ui.get("ping_no_im_fine", "No, I'm fine"),
+                     use_container_width=True, key="ping_dialog_no"):
             if idx is not None:
                 st.session_state.messages[idx]["ping_confirmed"] = False
                 if st.session_state.messages[idx].get("staff_requested") is not None:
@@ -2159,9 +2193,14 @@ def main():
 
     # --- Check for killed session ---
     if st.session_state.visit_id and is_session_killed(st.session_state.visit_id):
+        ui = st.session_state.get("ui_translations", {})
         st.title("🎲 The Merry Meeple")
-        st.warning("Your session has been ended by staff. Please check with a staff member if you need assistance.")
-        if st.button("Start New Session", use_container_width=True):
+        st.warning(ui.get(
+            "session_ended",
+            "Your session has been ended by staff. Please check with a staff member if you need assistance.",
+        ))
+        if st.button(ui.get("start_new_session", "Start New Session"),
+                     use_container_width=True):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
@@ -2178,12 +2217,16 @@ def main():
 
     # Get translated UI strings for non-English users
     current_lang = (st.session_state.customer_profile or {}).get("language_preference", "English")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if current_lang and current_lang != "English":
-        ui = translate_app_ui(current_lang, os.environ.get("ANTHROPIC_API_KEY")) or {}
+        ui = translate_app_ui(current_lang, api_key) or {}
+        browse_ui_t = translate_browse_ui(current_lang, api_key) or {}
     else:
         ui = {}
-    # Store in session state so dialog can access it
+        browse_ui_t = {}
+    # Store in session state so dialogs and browse_ui can access them
     st.session_state.ui_translations = ui
+    st.session_state.browse_ui_translations = browse_ui_t
 
     # --- Browse mode takeover ---
     # When the user clicks "Browse games" in the bottom bar, we hide the
@@ -2244,8 +2287,9 @@ def main():
 
     # Check if library is empty
     if not game_library:
-        st.error("📚 No games in library yet!")
-        st.info("Staff: Run `python process_rulebooks.py` to add games.")
+        st.error(ui.get("no_games_yet", "📚 No games in library yet!"))
+        st.info(ui.get("no_games_staff_hint",
+                        "Staff: Run `python process_rulebooks.py` to add games."))
         return
 
     # Pre-generate quick-action responses (cached daily)

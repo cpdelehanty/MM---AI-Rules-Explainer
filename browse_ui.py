@@ -112,6 +112,11 @@ def reset_browse_state():
     st.session_state.pop("browse_mode", None)
 
 
+def _t(key, fallback):
+    """Pull a browse-UI translation, falling back to English."""
+    return st.session_state.get("browse_ui_translations", {}).get(key, fallback)
+
+
 def go_to_step(step):
     st.session_state.browse_step = step
     st.session_state.browse_show_more_chips = False
@@ -214,14 +219,20 @@ def _format_player_ranges(ranges):
 # ---------------------------------------------------------------------------
 
 def _render_party_size():
-    st.markdown("<div class='browse-step'>Step 1 of 4</div>", unsafe_allow_html=True)
-    st.markdown("<div class='browse-title'>How many players?</div>", unsafe_allow_html=True)
-    st.markdown("<div class='browse-help'>Tap your party size to start.</div>",
-                unsafe_allow_html=True)
+    step_label = _t("step_of", "Step {n} of 4").replace("{n}", "1")
+    st.markdown(f"<div class='browse-step'>{step_label}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='browse-title'>{_t('how_many_players', 'How many players?')}</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div class='browse-help'>{_t('tap_party_size', 'Tap your party size to start.')}</div>",
+        unsafe_allow_html=True,
+    )
 
     # Solo gets its own row, then 2-6+ in a row of five — keeps the solo
     # affordance from getting squished and keeps tap targets large on mobile.
-    if st.button("1 (solo)", key="party_1", use_container_width=True):
+    if st.button(_t("party_solo", "1 (solo)"), key="party_1", use_container_width=True):
         st.session_state.browse_party_size = 1
         _save_pref("party_size", "1")
         go_to_step("family")
@@ -241,30 +252,36 @@ def _render_party_size():
 # ---------------------------------------------------------------------------
 
 def _render_family():
-    st.markdown("<div class='browse-step'>Step 2 of 4</div>", unsafe_allow_html=True)
-    st.markdown("<div class='browse-title'>Audience?</div>", unsafe_allow_html=True)
+    party = st.session_state.browse_party_size
+    step_label = _t("step_of", "Step {n} of 4").replace("{n}", "2")
+    st.markdown(f"<div class='browse-step'>{step_label}</div>", unsafe_allow_html=True)
     st.markdown(
-        f"<div class='browse-help'>Party of {st.session_state.browse_party_size}. "
-        f"Pick what fits the group.</div>",
+        f"<div class='browse-title'>{_t('audience_q', 'Audience?')}</div>",
         unsafe_allow_html=True,
     )
+    if party == 1:
+        summary = _t("party_summary_solo", "Solo. Pick what fits.")
+    else:
+        summary = _t("party_summary",
+                      "Party of {n}. Pick what fits the group.").replace("{n}", str(party))
+    st.markdown(f"<div class='browse-help'>{summary}</div>", unsafe_allow_html=True)
 
     # Vertical stacking — full width for big tap targets
-    if st.button("👨‍👩‍👧 Family-friendly",
+    if st.button(_t("family_friendly", "👨‍👩‍👧 Family-friendly"),
                  key="fam_family", use_container_width=True,
-                 help="Recommended ages 8 and under welcome"):
+                 help=_t("family_friendly_help", "Recommended ages 8 and under welcome")):
         st.session_state.browse_family = "family"
         _save_pref("family_filter", "family")
         go_to_step("hub")
-    if st.button("🎲 All audiences",
+    if st.button(_t("all_audiences", "🎲 All audiences"),
                  key="fam_all", use_container_width=True,
-                 help="Mixed group; no age filter"):
+                 help=_t("all_audiences_help", "Mixed group; no age filter")):
         st.session_state.browse_family = "all"
         _save_pref("family_filter", "all")
         go_to_step("hub")
-    if st.button("🍷 Adults only",
+    if st.button(_t("adults_only", "🍷 Adults only"),
                  key="fam_adult", use_container_width=True,
-                 help="Edgier titles, ages 14+"):
+                 help=_t("adults_only_help", "Edgier titles, ages 14+")):
         st.session_state.browse_family = "adult"
         _save_pref("family_filter", "adult")
         go_to_step("hub")
@@ -275,31 +292,35 @@ def _render_family():
 # ---------------------------------------------------------------------------
 
 def _render_hub():
-    st.markdown("<div class='browse-step'>Step 3 of 4</div>", unsafe_allow_html=True)
-    st.markdown("<div class='browse-title'>How do you want to browse?</div>",
-                unsafe_allow_html=True)
+    step_label = _t("step_of", "Step {n} of 4").replace("{n}", "3")
+    st.markdown(f"<div class='browse-step'>{step_label}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='browse-title'>"
+        f"{_t('how_to_browse', 'How do you want to browse?')}</div>",
+        unsafe_allow_html=True,
+    )
 
     fam_label = FAMILY_FILTERS[st.session_state.browse_family]["label"]
     st.markdown(
         f"<div class='browse-help'>"
-        f"{st.session_state.browse_party_size} players · {fam_label}"
+        f"{st.session_state.browse_party_size} · {fam_label}"
         f"</div>",
         unsafe_allow_html=True,
     )
 
-    if st.button("🏷️ By Category — Strategy, Party, Family…",
+    if st.button(_t("by_category", "🏷️ By Category — Strategy, Party, Family…"),
                  key="hub_cafe", use_container_width=True):
         st.session_state.browse_hub_path = "cafe"
         go_to_step("list")
-    if st.button("🎭 By Theme — Fantasy, Sci-Fi, Animals…",
+    if st.button(_t("by_theme", "🎭 By Theme — Fantasy, Sci-Fi, Animals…"),
                  key="hub_theme", use_container_width=True):
         st.session_state.browse_hub_path = "theme"
         go_to_step("list")
-    if st.button("⚙️ By Mechanic — Drafting, Worker Placement…",
+    if st.button(_t("by_mechanic", "⚙️ By Mechanic — Drafting, Worker Placement…"),
                  key="hub_mech", use_container_width=True):
         st.session_state.browse_hub_path = "mechanic"
         go_to_step("list")
-    if st.button("✨ Tell me what you want…",
+    if st.button(_t("tell_me_what_you_want_btn", "✨ Tell me what you want…"),
                  key="hub_like", use_container_width=True):
         st.session_state.browse_hub_path = "like"
         go_to_step("list")
@@ -316,7 +337,8 @@ def _render_list():
     all_games = get_all_games()
     base_filtered = filter_games(all_games, party_size=party, family_filter=family)
 
-    st.markdown("<div class='browse-step'>Step 4 of 4</div>", unsafe_allow_html=True)
+    step_label = _t("step_of", "Step {n} of 4").replace("{n}", "4")
+    st.markdown(f"<div class='browse-step'>{step_label}</div>", unsafe_allow_html=True)
 
     if path == "like":
         _render_like_path(all_games, party, family)
@@ -343,16 +365,17 @@ def _render_list():
     summary = st.session_state.get("browse_summary")
     if summary:
         st.markdown(
-            f"<div class='browse-help'><em>Reading you as:</em> {summary}</div>",
+            f"<div class='browse-help'><em>{_t('reading_you_as', 'Reading you as')}:</em> {summary}</div>",
             unsafe_allow_html=True,
         )
     _render_active_filter_pills(active)
-    if st.button("+ Add another filter", key="add_filter",
-                 use_container_width=True):
+    if st.button(_t("add_another_filter", "+ Add another filter"),
+                 key="add_filter", use_container_width=True):
         st.session_state.browse_show_more_chips = False
         go_to_step("hub")
+    games_match = _t("games_match", "{n} games match.").replace("{n}", str(len(results)))
     st.markdown(
-        f"<div class='browse-help'>{len(results)} games match.</div>",
+        f"<div class='browse-help'>{games_match}</div>",
         unsafe_allow_html=True,
     )
     _render_game_list(results[:30])
@@ -365,11 +388,11 @@ def _render_chip_picker(path, base_filtered, active):
     candidates_after_active = _filters_apply(base_filtered, active)
 
     label, chips_full = {
-        "cafe":     ("Pick a category",
+        "cafe":     (_t("pick_a_category", "Pick a category"),
                       top_cafe_categories(candidates_after_active, limit=20)),
-        "theme":    ("Pick a theme",
+        "theme":    (_t("pick_a_theme", "Pick a theme"),
                       top_themes(candidates_after_active, limit=20)),
-        "mechanic": ("Pick a mechanic",
+        "mechanic": (_t("pick_a_mechanic", "Pick a mechanic"),
                       top_mechanics(candidates_after_active, limit=20)),
     }[path]
 
@@ -387,8 +410,9 @@ def _render_chip_picker(path, base_filtered, active):
     st.markdown(f"<div class='browse-title'>{label}</div>", unsafe_allow_html=True)
     if not chips:
         st.markdown(
-            "<div class='browse-help'>No options left under the current filters. "
-            "Remove one above to widen the list.</div>",
+            f"<div class='browse-help'>"
+            f"{_t('no_options_left', 'No options left under the current filters. Remove one above to widen the list.')}"
+            f"</div>",
             unsafe_allow_html=True,
         )
         return
@@ -413,7 +437,10 @@ def _render_active_filter_pills(active):
     """Render removable pills for each active filter."""
     if not active:
         return
-    st.markdown("<div class='browse-help'>Filters:</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='browse-help'>{_t('filters_label', 'Filters:')}</div>",
+        unsafe_allow_html=True,
+    )
     cols = st.columns(min(len(active), 3))
     for i, f in enumerate(active):
         with cols[i % len(cols)]:
@@ -455,21 +482,25 @@ def _handle_freeform_query(query, all_games):
     # Step 2: Claude parse for natural-language descriptions
     client = _get_anthropic_client()
     if client is None:
-        st.error("Natural-language search needs an ANTHROPIC_API_KEY.")
+        st.error(_t("needs_api_key", "Natural-language search needs an ANTHROPIC_API_KEY."))
         return
 
-    with st.spinner("Finding the right vibe…"):
+    with st.spinner(_t("finding_vibe", "Finding the right vibe…")):
         try:
             parsed = parse_freeform_query(query, client, all_games=all_games)
         except Exception as e:
-            st.error(f"Couldn't parse that — try rewording? ({e})")
+            err = _t("couldnt_parse",
+                      "Couldn't parse that — try rewording? ({e})").replace("{e}", str(e))
+            st.error(err)
             return
 
     if not parsed["filters"] and not parsed["anchors"]:
         # Last-resort: fall back to fuzzy hits if Claude returned nothing useful
         if hits:
-            st.markdown("<div class='browse-help'>Best guesses:</div>",
-                         unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='browse-help'>{_t('best_guesses', 'Best guesses:')}</div>",
+                unsafe_allow_html=True,
+            )
             for g in hits[:5]:
                 if st.button(g["name"], key=f"fb_anchor_{g['game_id']}",
                              use_container_width=True):
@@ -478,9 +509,9 @@ def _handle_freeform_query(query, all_games):
                     st.rerun()
             return
         st.markdown(
-            "<div class='browse-help'>Couldn't pin that down. "
-            "Try naming a game you love, or a mechanic/theme like "
-            "'cooperative dungeon crawler'.</div>",
+            f"<div class='browse-help'>"
+            f"{_t('couldnt_pin_down', 'Couldnt pin that down. Try naming a game you love, or a mechanic/theme like cooperative dungeon crawler.')}"
+            f"</div>",
             unsafe_allow_html=True,
         )
         return
@@ -539,12 +570,12 @@ def _render_like_path(all_games, party, family):
     """
     if (st.session_state.browse_anchor_name is None
             and not st.session_state.browse_filters):
-        st.markdown("<div class='browse-title'>Tell me what you want</div>",
-                    unsafe_allow_html=True)
         st.markdown(
-            "<div class='browse-help'>Name a game you love, or describe "
-            "what you're in the mood for — e.g. <em>'a deck builder with a "
-            "western theme'</em>.</div>",
+            f"<div class='browse-title'>{_t('tell_me_title', 'Tell me what you want')}</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"<div class='browse-help'>{_t('tell_me_help', 'Name a game you love, or describe what youre in the mood for.')}</div>",
             unsafe_allow_html=True,
         )
 
@@ -554,7 +585,9 @@ def _render_like_path(all_games, party, family):
                 placeholder="Catan… or: cooperative & not too long",
                 label_visibility="collapsed",
             )
-            submitted = st.form_submit_button("Search", use_container_width=True)
+            submitted = st.form_submit_button(
+                _t("search_btn", "Search"), use_container_width=True,
+            )
 
         if submitted and query:
             _handle_freeform_query(query, all_games)
@@ -566,8 +599,7 @@ def _render_like_path(all_games, party, family):
             strong = [g for g in hits if g["name"].lower() == query.lower()]
             if strong:
                 st.markdown(
-                    "<div class='browse-help'>Looks like a game name — "
-                    "tap to confirm:</div>",
+                    f"<div class='browse-help'>{_t('looks_like_game', 'Looks like a game name — tap to confirm:')}</div>",
                     unsafe_allow_html=True,
                 )
                 for g in strong[:3]:
@@ -586,23 +618,28 @@ def _render_like_path(all_games, party, family):
                                     user_themes=user_themes,
                                     limit=6, all_games=all_games)
     if anchor is None:
-        st.error(f"Couldn't find '{anchor_name}' in our library.")
-        if st.button("← Try a different game", key="back_like",
-                     use_container_width=True):
+        not_found = _t("anchor_not_found",
+                        "Couldn't find '{name}' in our library.").replace(
+                            "{name}", anchor_name)
+        st.error(not_found)
+        if st.button(_t("try_different_game", "← Try a different game"),
+                     key="back_like", use_container_width=True):
             st.session_state.browse_anchor_name = None
             st.rerun()
         return
 
-    st.markdown(f"<div class='browse-title'>Games like {anchor['name']}</div>",
+    games_like = _t("games_like", "Games like {name}").replace("{name}", anchor['name'])
+    st.markdown(f"<div class='browse-title'>{games_like}</div>",
                 unsafe_allow_html=True)
-    if st.button("← Try a different game", key="back_like_top",
-                 use_container_width=True):
+    if st.button(_t("try_different_game", "← Try a different game"),
+                 key="back_like_top", use_container_width=True):
         st.session_state.browse_anchor_name = None
         st.rerun()
     if not similar:
         st.markdown(
-            "<div class='browse-help'>No close matches available right now "
-            "for this group.</div>",
+            f"<div class='browse-help'>"
+            f"{_t('no_close_matches', 'No close matches available right now for this group.')}"
+            f"</div>",
             unsafe_allow_html=True,
         )
         return
@@ -645,8 +682,8 @@ def _render_detail():
     game_id = st.session_state.browse_detail_game_id
     g = get_game_by_id(game_id)
     if not g:
-        st.error("Game not found.")
-        if st.button("← Back", key="detail_back_err"):
+        st.error(_t("game_not_found", "Game not found."))
+        if st.button(_t("back_btn", "← Back"), key="detail_back_err"):
             back_step()
         return
 
@@ -676,7 +713,8 @@ def _render_detail():
     if g.get("best_player_count"):
         best = _format_player_ranges(g["best_player_count"])
         if best:
-            st.caption(f"Best with {best} players")
+            best_caption = _t("best_with_n", "Best with {n} players").replace("{n}", best)
+            st.caption(best_caption)
 
     if short:
         st.markdown(f"<div style='margin-top:0.6rem'>{short}</div>",
@@ -684,10 +722,10 @@ def _render_detail():
     full = _strip_html(g.get("description") or "")
     if full and len(full) > len(short or "") + 50:
         if st.session_state.browse_show_full_desc:
-            with st.expander("Less", expanded=True):
+            with st.expander(_t("less", "Less"), expanded=True):
                 st.write(full)
         else:
-            if st.button("Tell me more", key="more_desc",
+            if st.button(_t("tell_me_more", "Tell me more"), key="more_desc",
                          use_container_width=True):
                 st.session_state.browse_show_full_desc = True
                 st.rerun()
@@ -695,14 +733,18 @@ def _render_detail():
     st.markdown("&nbsp;", unsafe_allow_html=True)
 
     # Primary actions — stacked, full width
-    if st.button(f"🎯 Pick {g['name']}", key="pick_game",
+    pick_label = _t("pick_game", "🎯 Pick {name}").replace("{name}", g['name'])
+    if st.button(pick_label, key="pick_game",
                  use_container_width=True, type="primary"):
         _pick_game(g)
-        st.success(f"Staff notified — bringing {g['name']} to your table.")
+        notified = _t("staff_notified_game",
+                       "Staff notified — bringing {name} to your table.").replace(
+                           "{name}", g['name'])
+        st.success(notified)
 
     if g.get("bgg_id"):
-        if st.button("✨ More like this", key="more_like",
-                     use_container_width=True):
+        if st.button(_t("more_like_this", "✨ More like this"),
+                     key="more_like", use_container_width=True):
             st.session_state.browse_hub_path = "like"
             st.session_state.browse_anchor_name = g["name"]
             st.session_state.browse_filters = []  # like-X is its own mode
@@ -713,7 +755,7 @@ def _render_detail():
         st.markdown(
             f"<a href='{g['bgg_url']}' target='_blank' "
             f"style='display:block; text-align:center; margin-top:0.4rem;'>"
-            f"View on BoardGameGeek ↗</a>",
+            f"{_t('view_on_bgg', 'View on BoardGameGeek ↗')}</a>",
             unsafe_allow_html=True,
         )
 
@@ -764,10 +806,11 @@ def run_browse_ui():
     # Sticky-ish back / exit row at the top
     cols = st.columns([1, 5, 1])
     with cols[0]:
-        if st.button("←", key="browse_back", help="Back"):
+        if st.button("←", key="browse_back", help=_t("back", "Back")):
             back_step()
     with cols[2]:
-        if st.button("✕", key="browse_exit", help="Exit to chat"):
+        if st.button("✕", key="browse_exit",
+                     help=_t("exit_to_chat", "Exit to chat")):
             reset_browse_state()
             st.rerun()
 
@@ -783,7 +826,8 @@ def run_browse_ui():
     elif step == "detail":
         _render_detail()
     else:
-        st.warning(f"Unknown step: {step}")
-        if st.button("Reset"):
+        warn = _t("unknown_step", "Unknown step: {step}").replace("{step}", str(step))
+        st.warning(warn)
+        if st.button(_t("reset", "Reset")):
             reset_browse_state()
             st.rerun()
