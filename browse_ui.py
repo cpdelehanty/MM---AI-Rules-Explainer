@@ -14,7 +14,8 @@ import streamlit as st
 from recommender import (
     get_all_games, get_game_by_id, filter_games, find_similar,
     top_cafe_categories, top_bgg_categories, top_mechanics, top_themes,
-    fuzzy_find_anchor, rank_games, popular_themes_for_user, FAMILY_FILTERS,
+    fuzzy_find_anchor, rank_games, popular_themes_for_user,
+    parse_freeform_query, FAMILY_FILTERS,
 )
 from database_recs import (
     save_preferences, log_recommendation, mark_recommendation_selected,
@@ -62,6 +63,7 @@ DEFAULT_STATE = {
     "browse_detail_game_id": None,
     "browse_show_more_chips": False,
     "browse_show_full_desc": False,
+    "browse_summary": None,             # Claude's interpretation of the freeform query
 }
 
 
@@ -122,9 +124,10 @@ def back_step():
             if s == "list":
                 if st.session_state.browse_filters:
                     st.session_state.browse_filters.pop()
-                # Also clear any in-progress chip selection
+                # Also clear any in-progress chip selection / NL summary
                 st.session_state.browse_hub_path = None
                 st.session_state.browse_anchor_name = None
+                st.session_state.browse_summary = None
             go_to_step(flow[i - 1])
         else:
             reset_browse_state()
@@ -283,7 +286,7 @@ def _render_hub():
                  key="hub_mech", use_container_width=True):
         st.session_state.browse_hub_path = "mechanic"
         go_to_step("list")
-    if st.button("✨ Something like a game I love…",
+    if st.button("✨ Tell me what you want…",
                  key="hub_like", use_container_width=True):
         st.session_state.browse_hub_path = "like"
         go_to_step("list")
@@ -322,6 +325,12 @@ def _render_list():
     user_themes = popular_themes_for_user(user_id) if user_id else None
     rank_games(results, party_size=party, user_themes=user_themes)
 
+    summary = st.session_state.get("browse_summary")
+    if summary:
+        st.markdown(
+            f"<div class='browse-help'><em>Reading you as:</em> {summary}</div>",
+            unsafe_allow_html=True,
+        )
     _render_active_filter_pills(active)
     if st.button("+ Add another filter", key="add_filter",
                  use_container_width=True):
@@ -402,23 +411,120 @@ def _render_active_filter_pills(active):
                 st.rerun()
 
 
+def _get_anthropic_client():
+    """Cache an Anthropic client in session_state so we don't rebuild it each render."""
+    import os
+    if "anthropic_client" not in st.session_state:
+        from anthropic import Anthropic
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            return None
+        st.session_state["anthropic_client"] = Anthropic(api_key=api_key)
+    return st.session_state["anthropic_client"]
+
+
+def _handle_freeform_query(query, all_games):
+    """
+    Route the user's text input. If it looks like a game name we have,
+    set it as the anchor. Otherwise, parse with Claude into filters.
+    """
+    # Step 1: fuzzy match against game names
+    hits = fuzzy_find_anchor(query, all_games=all_games)
+    exact = [g for g in hits if g["name"].lower() == query.lower().strip()]
+    if exact:
+        st.session_state.browse_anchor_name = exact[0]["name"]
+        _save_pref("like_anchor", exact[0]["name"])
+        st.rerun()
+        return
+
+    # Step 2: Claude parse for natural-language descriptions
+    client = _get_anthropic_client()
+    if client is None:
+        st.error("Natural-language search needs an ANTHROPIC_API_KEY.")
+        return
+
+    with st.spinner("Finding the right vibe…"):
+        try:
+            parsed = parse_freeform_query(query, client, all_games=all_games)
+        except Exception as e:
+            st.error(f"Couldn't parse that — try rewording? ({e})")
+            return
+
+    if not parsed["filters"] and not parsed["anchors"]:
+        # Last-resort: fall back to fuzzy hits if Claude returned nothing useful
+        if hits:
+            st.markdown("<div class='browse-help'>Best guesses:</div>",
+                         unsafe_allow_html=True)
+            for g in hits[:5]:
+                if st.button(g["name"], key=f"fb_anchor_{g['game_id']}",
+                             use_container_width=True):
+                    st.session_state.browse_anchor_name = g["name"]
+                    _save_pref("like_anchor", g["name"])
+                    st.rerun()
+            return
+        st.markdown(
+            "<div class='browse-help'>Couldn't pin that down. "
+            "Try naming a game you love, or a mechanic/theme like "
+            "'cooperative dungeon crawler'.</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    # Apply filters + optional anchor
+    if parsed["filters"]:
+        st.session_state.browse_filters = list(parsed["filters"])
+        # Switch to a chip-driven list view (no anchor mode)
+        st.session_state.browse_hub_path = None
+    if parsed["anchors"] and not parsed["filters"]:
+        st.session_state.browse_anchor_name = parsed["anchors"][0]
+    if parsed["summary"]:
+        st.session_state["browse_summary"] = parsed["summary"]
+    st.rerun()
+
+
 def _render_like_path(all_games, party, family):
-    if st.session_state.browse_anchor_name is None:
-        st.markdown("<div class='browse-title'>Type a game you love</div>",
+    """
+    Unified "tell me what you want" input. Smart routing:
+      - If the input fuzzy-matches a game name strongly, treat as anchor
+        (use BGG fans-also-like + content similarity).
+      - Else, send to Claude for natural-language parsing into structured
+        filters + optional anchor games.
+    """
+    if (st.session_state.browse_anchor_name is None
+            and not st.session_state.browse_filters):
+        st.markdown("<div class='browse-title'>Tell me what you want</div>",
                     unsafe_allow_html=True)
-        query = st.text_input("Game name", key="like_query",
-                               placeholder="Catan, Wingspan, Codenames…",
-                               label_visibility="collapsed")
-        if query:
+        st.markdown(
+            "<div class='browse-help'>Name a game you love, or describe "
+            "what you're in the mood for — e.g. <em>'a deck builder with a "
+            "western theme'</em>.</div>",
+            unsafe_allow_html=True,
+        )
+
+        with st.form(key="freeform_form", clear_on_submit=False):
+            query = st.text_input(
+                "Game name or vibe", key="like_query",
+                placeholder="Catan… or: cooperative & not too long",
+                label_visibility="collapsed",
+            )
+            submitted = st.form_submit_button("Search", use_container_width=True)
+
+        if submitted and query:
+            _handle_freeform_query(query, all_games)
+            return
+
+        # Light-weight live preview: if user typed a clear anchor, show it
+        if query and not submitted:
             hits = fuzzy_find_anchor(query, all_games=all_games)
-            if not hits:
-                st.markdown("<div class='browse-help'>No matches in our library. "
-                             "Try a different name?</div>", unsafe_allow_html=True)
-            else:
-                st.markdown("<div class='browse-help'>Tap the one you mean:</div>",
-                             unsafe_allow_html=True)
-                for g in hits:
-                    if st.button(g["name"], key=f"anchor_{g['game_id']}",
+            strong = [g for g in hits if g["name"].lower() == query.lower()]
+            if strong:
+                st.markdown(
+                    "<div class='browse-help'>Looks like a game name — "
+                    "tap to confirm:</div>",
+                    unsafe_allow_html=True,
+                )
+                for g in strong[:3]:
+                    if st.button(g["name"], key=f"quick_anchor_{g['game_id']}",
                                  use_container_width=True):
                         st.session_state.browse_anchor_name = g["name"]
                         _save_pref("like_anchor", g["name"])

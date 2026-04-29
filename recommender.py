@@ -376,6 +376,193 @@ def find_similar(anchor_name, party_size=None, family_filter=None,
     return anchor, [c for _, c in scored[:limit]]
 
 
+def parse_freeform_query(query, anthropic_client, all_games=None):
+    """
+    Use Claude to parse a natural-language description into structured
+    recommendation context. Returns:
+        {
+          "filters":  [{"type": "mechanic"|"theme"|"cafe_category", "value": "..."}, ...],
+          "anchors":  [game_name, ...],   # cafe library names
+          "summary":  "1-line interpretation",
+        }
+
+    Claude is told to use plain natural language for mechanic/theme/category
+    values; we then fuzzy-match those against the actual library vocabulary
+    so we never produce filter values that aren't in the data.
+    """
+    if all_games is None:
+        all_games = get_all_games()
+
+    cafe_cat_set = {c for g in all_games for c in (g.get("cafe_categories") or [])}
+    bgg_cat_set = {c for g in all_games for c in (g.get("categories") or [])}
+    mechanic_set = {m for g in all_games for m in (g.get("mechanics") or [])}
+    theme_set = {t for g in all_games for t in (g.get("themes") or []) if is_thematic(t)}
+    name_set = {g["name"] for g in all_games}
+
+    prompt = (
+        "You are parsing a customer's natural-language request for a board "
+        "game recommendation at a board-game cafe. Extract structured "
+        "preferences.\n\n"
+        f"Customer said: {query!r}\n\n"
+        "Respond with JSON ONLY in this shape (no prose, no code fences):\n"
+        "{\n"
+        '  "cafe_categories": [],\n'
+        '  "bgg_categories": [],\n'
+        '  "mechanics": [],\n'
+        '  "themes": [],\n'
+        '  "anchor_games": [],\n'
+        '  "summary": ""\n'
+        "}\n\n"
+        "Guidance:\n"
+        "- cafe_categories: pick at most one of: Party, Mid-Weight Strategy, "
+        "Heavy Strategy, Family, Cooperative, Gateway Strategy, "
+        "Thematic / Adventure, Social Deduction, Two-Player, Kids, "
+        "Word / Trivia / Dex.\n"
+        "- mechanics: short BGG-style names like 'Deck Building', "
+        "'Worker Placement', 'Tile Placement' — at most 3.\n"
+        "- themes: short topic words like 'Western', 'Fantasy', "
+        "'Space', 'Horror' — at most 3.\n"
+        "- bgg_categories: BGG-style category names like 'Economic', "
+        "'Wargame' — at most 2.\n"
+        "- anchor_games: 0-2 specific game names from popular tabletop "
+        "games that would match the description, even if unsure of the "
+        "cafe's stock.\n"
+        "- summary: one short sentence rephrasing the request.\n"
+        "Use your knowledge of board games freely; we'll fuzzy-match your "
+        "values against the cafe's vocabulary, so don't worry about "
+        "exact strings."
+    )
+
+    raw = anthropic_client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=512,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = raw.content[0].text if raw.content else ""
+
+    parsed = _extract_json(text) or {}
+    return _resolve_parsed_query(parsed, cafe_cat_set, bgg_cat_set,
+                                  mechanic_set, theme_set, name_set)
+
+
+def _extract_json(text):
+    """Pull a JSON object out of a Claude response, tolerant of stray prose."""
+    import json
+    if not text:
+        return None
+    # Strip code fences if present
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`").lstrip("json\n").strip()
+    # Find the first {...} block
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        return json.loads(text[start:end + 1])
+    except json.JSONDecodeError:
+        return None
+
+
+def _best_match(claude_value, vocabulary, min_word_overlap=0.34):
+    """
+    Map a Claude-suggested string to the closest vocabulary entry. Tries:
+        1. Exact normalized match (case + punctuation insensitive)
+        2. Substring match (either direction)
+        3. Word-level Jaccard overlap (catches "Deck Building" -> "Deck, Bag, and Pool Building")
+    Returns None if no candidate is reasonably close.
+    """
+    if not claude_value:
+        return None
+    target_norm = re.sub(r"[^a-z0-9]+", "", claude_value.lower())
+    target_words = set(re.findall(r"[a-z0-9]+", claude_value.lower()))
+    target_words -= {"the", "a", "an", "and", "of", "with", "for", "in", "to"}
+    if not target_norm:
+        return None
+
+    # 1. Exact normalized match
+    for v in vocabulary:
+        if re.sub(r"[^a-z0-9]+", "", v.lower()) == target_norm:
+            return v
+
+    # 2. Substring match
+    sub_candidates = []
+    for v in vocabulary:
+        n = re.sub(r"[^a-z0-9]+", "", v.lower())
+        if not n:
+            continue
+        if target_norm in n or n in target_norm:
+            ratio = min(len(target_norm), len(n)) / max(len(target_norm), len(n))
+            sub_candidates.append((ratio, v))
+    if sub_candidates:
+        sub_candidates.sort(key=lambda x: -x[0])
+        return sub_candidates[0][1]
+
+    # 3. Word-level Jaccard overlap
+    if not target_words:
+        return None
+    word_candidates = []
+    for v in vocabulary:
+        v_words = set(re.findall(r"[a-z0-9]+", v.lower()))
+        v_words -= {"the", "a", "an", "and", "of", "with", "for", "in", "to"}
+        if not v_words:
+            continue
+        overlap = target_words & v_words
+        if not overlap:
+            continue
+        jaccard = len(overlap) / len(target_words | v_words)
+        # Bonus for matching every target word
+        if target_words.issubset(v_words):
+            jaccard += 0.3
+        word_candidates.append((jaccard, v))
+    if word_candidates:
+        word_candidates.sort(key=lambda x: -x[0])
+        if word_candidates[0][0] >= min_word_overlap:
+            return word_candidates[0][1]
+    return None
+
+
+def _resolve_parsed_query(parsed, cafe_cats, bgg_cats, mechanics, themes, names):
+    """Convert Claude's natural-language values into actual filter entries."""
+    filters = []
+    seen = set()
+
+    def _add(type_key, value):
+        key = (type_key, value)
+        if value and key not in seen:
+            filters.append({"type": type_key, "value": value})
+            seen.add(key)
+
+    for v in parsed.get("cafe_categories", []) or []:
+        _add("cafe_category", _best_match(v, cafe_cats))
+
+    for v in parsed.get("bgg_categories", []) or []:
+        _add("bgg_category", _best_match(v, bgg_cats))
+
+    for v in parsed.get("mechanics", []) or []:
+        _add("mechanic", _best_match(v, mechanics))
+
+    for v in parsed.get("themes", []) or []:
+        _add("theme", _best_match(v, themes))
+
+    # Drop entries where the match resolved to None
+    filters = [f for f in filters if f["value"]]
+
+    anchors = []
+    for g in parsed.get("anchor_games", []) or []:
+        # Try fuzzy match against cafe library names
+        match = _best_match(g, names)
+        if match and match not in anchors:
+            anchors.append(match)
+
+    return {
+        "filters": filters,
+        "anchors": anchors,
+        "summary": parsed.get("summary") or "",
+    }
+
+
 def fuzzy_find_anchor(query, all_games=None):
     """
     Find candidate anchor games by user-typed query. Lenient matching:
