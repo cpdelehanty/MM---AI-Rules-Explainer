@@ -105,12 +105,26 @@ def go_to_step(step):
 
 
 def back_step():
-    """Smart back: detail -> list -> hub -> family -> party_size."""
+    """
+    Smart back: detail -> list -> hub -> family -> party_size.
+
+    When stepping back from the filtered list to the hub, we drop the most
+    recent filter so the user can re-pick. This matches "back = undo my
+    last action". To preserve filters and add another, use the explicit
+    "+ Add another filter" button on the list.
+    """
     s = st.session_state.browse_step
     flow = ["party_size", "family", "hub", "list", "detail"]
     if s in flow:
         i = flow.index(s)
         if i > 0:
+            # Going from list back to hub: pop the most recent filter
+            if s == "list":
+                if st.session_state.browse_filters:
+                    st.session_state.browse_filters.pop()
+                # Also clear any in-progress chip selection
+                st.session_state.browse_hub_path = None
+                st.session_state.browse_anchor_name = None
             go_to_step(flow[i - 1])
         else:
             reset_browse_state()
