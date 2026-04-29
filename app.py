@@ -2031,36 +2031,44 @@ def main():
         welcome = t.get("welcome", "Welcome! Enter your phone number to get started.")
         privacy_link = t.get("privacy_link", "How is my info used?")
 
-        # Style the tertiary "privacy" button so it reads like an inline
-        # parenthetical hyperlink (small + blue + underlined), and pull
-        # it visually onto the same line as the welcome text.
+        # Style the privacy tertiary button to look like a small blue
+        # underlined inline link. The button is keyed `open_privacy`,
+        # which Streamlit exposes as the parent class `st-key-open_privacy`.
         st.markdown(
             """
             <style>
-              [data-testid="stButton"] button[kind="tertiary"][data-testid*="open_privacy"] {
+              .st-key-open_privacy button {
                 color: #3b82f6 !important;
                 text-decoration: underline !important;
                 font-size: 0.85rem !important;
                 padding: 0 !important;
-                margin-top: -1.4rem !important;
-                margin-left: 0.25rem !important;
+                margin: 0 !important;
                 background: transparent !important;
                 border: none !important;
                 box-shadow: none !important;
                 min-height: 0 !important;
-                line-height: 1.4 !important;
+                height: auto !important;
                 font-weight: 400 !important;
+                line-height: 1.4 !important;
+              }
+              .st-key-open_privacy button:hover {
+                color: #1d4ed8 !important;
+                background: transparent !important;
+              }
+              .st-key-welcome_row [data-testid="stMarkdownContainer"] p {
+                margin: 0 !important;
               }
             </style>
             """,
             unsafe_allow_html=True,
         )
-        # Render welcome and button in the same horizontal row.
-        col_w, col_l = st.columns([4, 3])
-        with col_w:
+
+        # Native horizontal layout: welcome text + privacy link on same row.
+        with st.container(key="welcome_row", horizontal=True,
+                           vertical_alignment="center", gap="small"):
             st.markdown(welcome)
-        with col_l:
-            if st.button(f"({privacy_link})", key="open_privacy", type="tertiary"):
+            if st.button(f"({privacy_link})", key="open_privacy",
+                          type="tertiary"):
                 open_privacy_dialog()
 
         with st.form("phone_gate_form"):
