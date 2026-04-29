@@ -2037,12 +2037,26 @@ def main():
         st.markdown(
             """
             <style>
-              /* Style the privacy button to look like an inline link.
-                 Parens are added via ::before/::after so they don't get
-                 underlined along with the text. */
+              /* Tight inline layout: welcome + link on one continuous line. */
+              .st-key-welcome_row {
+                gap: 0 !important;
+                align-items: baseline !important;
+                flex-wrap: wrap !important;
+              }
+              .st-key-welcome_row [data-testid="stMarkdownContainer"] p {
+                margin: 0 !important;
+                line-height: 1.4 !important;
+                display: inline !important;
+              }
+              .st-key-welcome_row .stButton {
+                width: auto !important;
+                margin: 0 !important;
+              }
+              /* Tertiary button styled as an inline link. Parens are
+                 added via ::before/::after so they don't get underlined. */
               .st-key-open_privacy button {
                 color: #3b82f6 !important;
-                font-size: 0.78rem !important;
+                font-size: 0.85rem !important;
                 padding: 0 !important;
                 margin: 0 !important;
                 background: transparent !important;
@@ -2052,42 +2066,36 @@ def main():
                 height: auto !important;
                 font-weight: 400 !important;
                 line-height: 1.4 !important;
+                vertical-align: baseline !important;
               }
               .st-key-open_privacy button > div,
               .st-key-open_privacy button > div > p {
                 text-decoration: underline !important;
                 color: #3b82f6 !important;
                 margin: 0 !important;
+                line-height: 1.4 !important;
               }
               .st-key-open_privacy button::before {
-                content: "(";
+                content: "\\00a0(";
                 color: #3b82f6;
-                margin-right: 1px;
               }
               .st-key-open_privacy button::after {
                 content: ")";
                 color: #3b82f6;
-                margin-left: 1px;
               }
-              .st-key-open_privacy button:hover {
-                color: #1d4ed8 !important;
-                background: transparent !important;
-              }
-              .st-key-open_privacy button:hover > div,
+              .st-key-open_privacy button:hover,
               .st-key-open_privacy button:hover > div > p {
                 color: #1d4ed8 !important;
-              }
-              .st-key-welcome_row [data-testid="stMarkdownContainer"] p {
-                margin: 0 !important;
+                background: transparent !important;
               }
             </style>
             """,
             unsafe_allow_html=True,
         )
 
-        # Native horizontal layout: welcome text + privacy link on same row.
+        # Native horizontal layout: welcome text + privacy link on one row.
         with st.container(key="welcome_row", horizontal=True,
-                           vertical_alignment="center", gap="small"):
+                           vertical_alignment="bottom", gap=None):
             st.markdown(welcome)
             if st.button(privacy_link, key="open_privacy", type="tertiary"):
                 open_privacy_dialog()
