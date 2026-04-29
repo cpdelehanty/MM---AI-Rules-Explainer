@@ -203,8 +203,14 @@ def _render_party_size():
     st.markdown("<div class='browse-help'>Tap your party size to start.</div>",
                 unsafe_allow_html=True)
 
-    # 5 options stacked-ish — Streamlit columns wrap on narrow viewports
-    options = [("2", 2), ("3", 3), ("4", 4), ("5", 5), ("6 or more", 6)]
+    # Solo gets its own row, then 2-6+ in a row of five — keeps the solo
+    # affordance from getting squished and keeps tap targets large on mobile.
+    if st.button("1 (solo)", key="party_1", use_container_width=True):
+        st.session_state.browse_party_size = 1
+        _save_pref("party_size", "1")
+        go_to_step("family")
+
+    options = [("2", 2), ("3", 3), ("4", 4), ("5", 5), ("6+", 6)]
     cols = st.columns(len(options))
     for col, (label, val) in zip(cols, options):
         with col:
