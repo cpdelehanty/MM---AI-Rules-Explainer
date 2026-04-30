@@ -38,7 +38,7 @@ from browse_ui import run_browse_ui
 load_dotenv(override=True)
 
 # Configuration
-TOP_K_RESULTS = 8
+TOP_K_RESULTS = 5
 
 
 # --- Admin integration (session tracking + kill check) ---
@@ -830,13 +830,10 @@ Rules for answering:
   Example: "According to the FAQ, nectar tokens can be spent as wild food (FAQ p. 2)"
   Example: "The rulebook states each player draws 5 cards (Rulebook p. 3)"
 - If information comes from multiple sources, cite all: "This is covered in both the Rulebook (p. 5) and clarified in the FAQ (p. 2)"
-- ANSWER USING THE CHUNKS even if the question's exact wording doesn't appear in them. If a chunk describes the relevant mechanic, action, phase, or component, use it to answer — don't require the question's keywords to literally appear in the source. Example: a question about "what happens to canal connections in the rail era" is answered by chunks describing "canal Links being scored and removed at end of each era."
-- DO NOT INFER OR EXTEND RULES with general board-game logic. If the chunks don't state or clearly imply something, say so — don't fill in plausible-sounding gaps. Don't generalize a specific rule (e.g. one icon's behavior) to a broader category. Don't combine partial information from multiple chunks unless they explicitly connect.
-- READ QUALIFIERS CAREFULLY: "once per round" ≠ "once per turn"; "optional" ≠ "mandatory"; "instead of" ≠ "in addition to". Never paraphrase past these qualifiers.
-- WHEN ASKED ABOUT QUANTITIES (cubes, cards, tokens, components), quote the exact number from the chunk. Don't sum or split numbers across categories unless the chunk explicitly does so.
-- DEFERRING IS A LAST RESORT — only say "I don't see that information in the materials I have access to. Would you like me to request staff assistance?" when NONE of the chunks describe the relevant rule, mechanic, phase, or component. If a chunk covers the topic in different words, answer using it.
+- If the answer isn't in any of the provided sources, say "I don't see that information in the materials I have access to. Would you like me to request staff assistance?"
 - If the customer responds with just "yes" or "yes please" after you've offered staff assistance, remind them: "Please click the '📞 Yes, get help' button above to notify staff. I can't send the notification through chat messages."
 - If the question is unclear, ask ONE clarifying question
+- Never make up rules that aren't in the source documents
 - NEVER say you've notified staff unless the customer clicked the actual button
 
 STAFF NOTIFICATION:
