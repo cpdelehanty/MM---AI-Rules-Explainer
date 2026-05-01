@@ -18,4 +18,16 @@ rulebooks/
 # Groundedness test outputs (large per-question records — regenerable)
 groundedness_results.json
 groundedness_results.json.tmp
+groundedness_results.json.prev
+groundedness_results_baseline.json
+groundedness_results_failures_v2.json
+groundedness_results_failures_critique_only.json
+groundedness_results_v2.json
+groundedness_sanity_v2.json
+groundedness_sanity_rerank_only.json
+groundedness_sanity_critique_only.json
 groundedness_summary.csv
+groundedness_summary_baseline.csv
+
+# Rulebook gather logs (regenerable)
+gather_rulebooks_log.json
