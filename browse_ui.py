@@ -111,6 +111,32 @@ def _ensure_state():
             st.session_state[k] = copy.deepcopy(v)
 
 
+_VALID_FILTER_KWARGS = {
+    "cafe_category", "bgg_category", "mechanic", "theme", "themes_any",
+    "playtime_max", "complexity_max", "complexity_min",
+}
+
+
+def _filters_apply(games, filters):
+    """
+    Apply every active filter (AND-stacked) to the candidate list.
+
+    Defensive: skip filters whose `type` isn't a recognized filter_games
+    kwarg. Stale session_state cookies from older builds can contain
+    types we no longer support; we don't want a TypeError to crash
+    the chip picker.
+    """
+    out = list(games)
+    for f in filters:
+        if not isinstance(f, dict):
+            continue
+        ftype = f.get("type")
+        if ftype not in _VALID_FILTER_KWARGS:
+            continue
+        out = filter_games(out, **{ftype: f.get("value")})
+    return out
+
+
 def reset_browse_state():
     for k in list(DEFAULT_STATE.keys()):
         st.session_state.pop(k, None)

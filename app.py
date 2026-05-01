@@ -2047,6 +2047,12 @@ def main():
                     st.session_state.customer_profile["language_preference"] = login_lang
                 st.session_state.visit_id = str(uuid.uuid4())
                 st.session_state.is_returning = False
+                # Clear stale per-visit state (cookie may carry it across visits)
+                st.session_state.current_game = None
+                st.session_state.messages = []
+                st.session_state.cart = []
+                st.session_state.deals_applied = []
+                st.session_state.games_this_session = []
                 register_session(st.session_state.visit_id, "ANON")
                 st.rerun()
             elif phone_input.strip():
@@ -2074,6 +2080,12 @@ def main():
                         st.session_state.customer_phone = normalized
                         st.session_state.visit_id = str(uuid.uuid4())
                         log_visit(normalized, st.session_state.visit_id)
+                        # Clear stale per-visit state (cookie may carry it across visits)
+                        st.session_state.current_game = None
+                        st.session_state.messages = []
+                        st.session_state.cart = []
+                        st.session_state.deals_applied = []
+                        st.session_state.games_this_session = []
 
                         # Register session and auto-link to table if seated
                         table_num = get_table_for_phone(normalized)
