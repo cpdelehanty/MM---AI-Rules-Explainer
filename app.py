@@ -2218,7 +2218,20 @@ def main():
         if should_sync_cart_upsells():
             sync_cart_upsells_from_sheets()
 
-    # Initialize remaining session state
+    # Defensive: when visit_id changes (e.g. phone-gate creates a new
+    # visit), clear all visit-scoped state. Catches cases where the
+    # phone-gate's per-path clear didn't run (stale browser session,
+    # session_state somehow preserved across visits).
+    if (st.session_state.visit_id and
+            st.session_state.get("_last_seen_visit_id") != st.session_state.visit_id):
+        st.session_state.current_game = None
+        st.session_state.messages = []
+        st.session_state.cart = []
+        st.session_state.deals_applied = []
+        st.session_state.games_this_session = []
+        st.session_state._last_seen_visit_id = st.session_state.visit_id
+
+    # Initialize remaining session state (defaults if not yet set)
     if 'messages' not in st.session_state:
         st.session_state.messages = []
     if 'current_game' not in st.session_state:
