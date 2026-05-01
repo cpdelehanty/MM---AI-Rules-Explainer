@@ -101,9 +101,13 @@ def _filter_pretty(f):
 
 
 def _ensure_state():
+    # deepcopy so mutable defaults (like browse_filters: []) aren't shared
+    # across sessions — without this, append() mutated the module-level
+    # default list and "leaked" filters into the next browse session.
+    import copy
     for k, v in DEFAULT_STATE.items():
         if k not in st.session_state:
-            st.session_state[k] = v
+            st.session_state[k] = copy.deepcopy(v)
 
 
 def reset_browse_state():
