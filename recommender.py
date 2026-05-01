@@ -134,9 +134,14 @@ def passes_family_filter(game, family_filter):
 
 def filter_games(games, party_size=None, family_filter=None,
                  cafe_category=None, bgg_category=None, mechanic=None,
-                 theme=None, playtime_max=None, complexity_max=None,
+                 theme=None, themes_any=None,
+                 playtime_max=None, complexity_max=None, complexity_min=None,
                  in_stock_only=True):
-    """Apply zero or more filter dimensions. Empty filters are no-ops."""
+    """Apply zero or more filter dimensions. Empty filters are no-ops.
+
+    `themes_any`: list of themes — game passes if it matches ANY of them
+    (used for the multi-select theme question in the recommend flow).
+    """
     out = []
     for g in games:
         if in_stock_only and not g.get("in_stock"):
@@ -155,6 +160,10 @@ def filter_games(games, party_size=None, family_filter=None,
             game_themes = [t for t in (g.get("themes") or []) if is_thematic(t)]
             if theme not in game_themes:
                 continue
+        if themes_any:
+            game_themes = set(t for t in (g.get("themes") or []) if is_thematic(t))
+            if not (game_themes & set(themes_any)):
+                continue
         if playtime_max is not None:
             t = g.get("playtime") or g.get("max_playtime") or g.get("min_playtime")
             if t is not None and t > playtime_max:
@@ -163,8 +172,44 @@ def filter_games(games, party_size=None, family_filter=None,
             c = g.get("complexity")
             if c is not None and c > complexity_max:
                 continue
+        if complexity_min is not None:
+            c = g.get("complexity")
+            if c is not None and c < complexity_min:
+                continue
         out.append(g)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Audience flags — for Kids / Adults visual pills on game cards
+# ---------------------------------------------------------------------------
+
+def is_kids_game(game):
+    """True if the game is explicitly aimed at young children."""
+    if "Kids" in (game.get("cafe_categories") or []):
+        return True
+    age = game.get("min_age_manufacturer")
+    if age is not None and age <= 6:
+        return True
+    cage = game.get("community_player_age") or ""
+    if cage:
+        m = re.match(r"^\s*(\d+)", str(cage))
+        if m and int(m.group(1)) <= 6:
+            return True
+    return False
+
+
+def is_adults_game(game):
+    """True if the game is explicitly aimed at adults (17+/18+/21+)."""
+    age = game.get("min_age_manufacturer")
+    if age is not None and age >= 17:
+        return True
+    cage = game.get("community_player_age") or ""
+    if cage:
+        m = re.match(r"^\s*(\d+)", str(cage))
+        if m and int(m.group(1)) >= 17:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -273,13 +318,8 @@ RANK_WEIGHTS = {
     "user_theme_match":         0.4,   # Phase 2: themes the user has thumbed-up
     "user_mechanic_match":      0.4,   # Phase 2: mechanics the user has thumbed-up
     "anchor_similarity":        2.0,   # weight applied to score_like in like-X path
-    # Soft query preferences from natural-language parse — apply even when
-    # the corresponding hard filter has been relaxed away
-    "query_category_match":     0.6,
-    "query_mechanic_match":     0.6,
-    "query_theme_match":        0.6,
-    "query_complexity_fit":     0.5,
-    "query_playtime_fit":       0.4,
+    "selected_theme_per_match": 0.5,   # per theme picked in recommend flow
+    "selected_theme_max_bonus": 1.5,   # cap on the cumulative theme bonus
 }
 
 
@@ -301,26 +341,17 @@ def _player_count_in(ranges, party_size):
 
 
 def rank_score(game, party_size=None, user_themes=None, user_mechanics=None,
-               anchor_similarity=0.0, query_prefs=None):
+               anchor_similarity=0.0, selected_themes=None):
     """
-    Composite ranking score for a single game in a given context.
+    Composite ranking score for a single game.
 
-    `query_prefs` is the FULL parsed query (before any filter relaxation),
-    so even when a hard filter is dropped to widen results, games that
-    match the original ask still rank higher.
-        {
-          "bgg_categories": ["Science Fiction"],
-          "mechanics": ["Deck Building"],
-          "themes": ["Theme: Space"],
-          "complexity_max": 2.0,
-          "playtime_max": 60,
-        }
+    `selected_themes`: list of themes the user picked in the recommend
+    flow. Each game-theme match adds a per-theme bonus, capped.
     """
-    geek = (game.get("geek_rating") or 0) / 10.0  # roughly 0.55 - 0.85
+    geek = (game.get("geek_rating") or 0) / 10.0
     score = RANK_WEIGHTS["geek_rating"] * geek
 
     if party_size is not None:
-        # Best > recommended > neither. Don't double-count.
         if _player_count_in(game.get("best_player_count"), party_size):
             score += RANK_WEIGHTS["best_player_match"]
         elif _player_count_in(game.get("recommended_player_count"), party_size):
@@ -334,41 +365,24 @@ def rank_score(game, party_size=None, user_themes=None, user_mechanics=None,
         overlap = len(set(game.get("mechanics") or []) & set(user_mechanics))
         score += min(overlap / 3.0, 1.0) * RANK_WEIGHTS["user_mechanic_match"]
 
-    if query_prefs:
-        if query_prefs.get("bgg_categories"):
-            game_cats = set(game.get("categories") or [])
-            if game_cats & set(query_prefs["bgg_categories"]):
-                score += RANK_WEIGHTS["query_category_match"]
-        if query_prefs.get("mechanics"):
-            game_mechs = set(game.get("mechanics") or [])
-            if game_mechs & set(query_prefs["mechanics"]):
-                score += RANK_WEIGHTS["query_mechanic_match"]
-        if query_prefs.get("themes"):
-            game_themes = set(game.get("themes") or [])
-            if game_themes & set(query_prefs["themes"]):
-                score += RANK_WEIGHTS["query_theme_match"]
-        cmax = query_prefs.get("complexity_max")
-        if cmax is not None and game.get("complexity") is not None:
-            if game["complexity"] <= cmax:
-                score += RANK_WEIGHTS["query_complexity_fit"]
-        pmax = query_prefs.get("playtime_max")
-        if pmax is not None:
-            game_pt = game.get("playtime") or game.get("max_playtime")
-            if game_pt is not None and game_pt <= pmax:
-                score += RANK_WEIGHTS["query_playtime_fit"]
+    if selected_themes:
+        game_themes = set(game.get("themes") or [])
+        n_match = len(game_themes & set(selected_themes))
+        bonus = n_match * RANK_WEIGHTS["selected_theme_per_match"]
+        score += min(bonus, RANK_WEIGHTS["selected_theme_max_bonus"])
 
     score += RANK_WEIGHTS["anchor_similarity"] * anchor_similarity
     return score
 
 
 def rank_games(games, party_size=None, user_themes=None, user_mechanics=None,
-               query_prefs=None):
+               selected_themes=None):
     """Sort `games` in place by `rank_score` descending. Returns the list."""
     games.sort(
         key=lambda g: -rank_score(g, party_size=party_size,
                                    user_themes=user_themes,
                                    user_mechanics=user_mechanics,
-                                   query_prefs=query_prefs),
+                                   selected_themes=selected_themes),
     )
     return games
 
