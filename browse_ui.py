@@ -239,13 +239,28 @@ def _format_player_ranges(ranges):
 
 
 def _audience_pills_html(game):
-    """HTML for Kids / Adults pills on a game card. Returns '' if neither."""
+    """HTML for Kids / Adults pills (used in detail view, where layout
+    can mix HTML and Streamlit elements freely)."""
     parts = []
     if is_kids_game(game):
         parts.append("<span class='game-pill game-pill-kids'>👶 Kids</span>")
     if is_adults_game(game):
         parts.append("<span class='game-pill game-pill-adults'>🍷 Adults</span>")
     return " ".join(parts)
+
+
+def _audience_inline_label(game):
+    """
+    Inline-text audience tag for embedding inside a Streamlit button label
+    (which can't render styled HTML). Empty string when game is neither
+    explicitly kids nor adults.
+    """
+    tags = []
+    if is_kids_game(game):
+        tags.append("👶 Kids")
+    if is_adults_game(game):
+        tags.append("🍷 Adults")
+    return "  ·  ".join(tags)
 
 
 # ---------------------------------------------------------------------------
@@ -580,12 +595,12 @@ def _render_game_list(games):
             pieces.append(f"⭐ {rating:.1f}")
         meta = "  ·  ".join(pieces)
 
-        # Audience pills (Kids / Adults)
-        audience_html = _audience_pills_html(g)
-        if audience_html:
-            st.markdown(audience_html, unsafe_allow_html=True)
-
+        # Audience tag embedded in the button label so it stays inside
+        # the card (Streamlit buttons can't render styled HTML pills).
+        audience = _audience_inline_label(g)
         label = f"**{g['name']}**\n\n{meta}"
+        if audience:
+            label += f"\n\n{audience}"
         if st.button(label, key=f"game_{g['game_id']}",
                      use_container_width=True):
             st.session_state.browse_detail_game_id = g["game_id"]
