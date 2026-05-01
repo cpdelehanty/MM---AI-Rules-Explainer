@@ -62,16 +62,17 @@ def _ensure_rec_user_id():
 DEFAULT_STATE = {
     "browse_step": "party_size",
     # Steps: party_size | hub
-    #        | list                                 (chip-driven path)
+    #        | list                                 (chip-driven, search, recommend results)
     #        | rec_playtime | rec_complexity | rec_themes  (recommend path)
     #        | detail
     "browse_party_size": None,
-    "browse_hub_path": None,                 # 'cafe' | 'mechanic' | 'theme' | 'recommend'
+    "browse_hub_path": None,                 # 'cafe' | 'mechanic' | 'theme' | 'recommend' | 'search'
     "browse_filters": [],                    # AND-stacked chip filters
     "browse_rec_playtime_max": None,         # int minutes or None
     "browse_rec_complexity_min": None,       # float
     "browse_rec_complexity_max": None,       # float
     "browse_rec_themes": [],                 # multi-select up to 3
+    "browse_search_query": "",               # for the manual search path
     "browse_detail_game_id": None,
     "browse_show_more_chips": False,
     "browse_show_full_desc": False,
@@ -345,6 +346,11 @@ def _render_hub():
                  key="hub_mech", use_container_width=True):
         st.session_state.browse_hub_path = "mechanic"
         go_to_step("list")
+    if st.button("🔍 Search for a game by name",
+                 key="hub_search", use_container_width=True):
+        st.session_state.browse_hub_path = "search"
+        st.session_state.browse_search_query = ""
+        go_to_step("list")
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +456,10 @@ def _render_list():
 
     if path == "recommend":
         _render_recommend_list(all_games, base, party)
+        return
+
+    if path == "search":
+        _render_search(base)
         return
 
     # Chip-driven paths: cafe / theme / mechanic
@@ -597,6 +607,76 @@ def _render_recommend_list(all_games, base, party):
     st.markdown(f"<div class='browse-help'>{len(results)} games match.</div>",
                 unsafe_allow_html=True)
     _render_game_list(results[:30])
+
+
+# ---------------------------------------------------------------------------
+# Search-by-name path
+# ---------------------------------------------------------------------------
+
+def _normalize_for_search(s):
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+
+def _search_games(query, games):
+    """
+    Rank games by how well their name matches `query`.
+    Order: exact normalized match > startswith > substring > word-token match.
+    Empty query returns all games sorted alphabetically.
+    """
+    if not query.strip():
+        return sorted(games, key=lambda g: g["name"].lower())
+    q = _normalize_for_search(query)
+    if not q:
+        return sorted(games, key=lambda g: g["name"].lower())
+
+    exact, prefix, substring, token = [], [], [], []
+    q_words = set(re.findall(r"[a-z0-9]+", query.lower()))
+    for g in games:
+        n = _normalize_for_search(g["name"])
+        if n == q:
+            exact.append(g)
+        elif n.startswith(q):
+            prefix.append(g)
+        elif q in n:
+            substring.append(g)
+        else:
+            name_words = set(re.findall(r"[a-z0-9]+", g["name"].lower()))
+            if q_words & name_words:
+                token.append(g)
+    # Within each bucket, alphabetical
+    for bucket in (exact, prefix, substring, token):
+        bucket.sort(key=lambda g: g["name"].lower())
+    return exact + prefix + substring + token
+
+
+def _render_search(base):
+    st.markdown("<div class='browse-step'>Search</div>", unsafe_allow_html=True)
+    st.markdown("<div class='browse-title'>Search for a game</div>",
+                unsafe_allow_html=True)
+
+    # Streamlit's text_input is keyed on session_state; binding to
+    # browse_search_query persists the query across reruns.
+    query = st.text_input(
+        "Game name", key="browse_search_query",
+        placeholder="Catan, Wingspan, Codenames…",
+        label_visibility="collapsed",
+    )
+
+    matches = _search_games(query or "", base)
+
+    if query:
+        st.markdown(
+            f"<div class='browse-help'>{len(matches)} game(s) match.</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"<div class='browse-help'>Showing all {len(matches)} games "
+            f"that fit your party. Start typing to filter.</div>",
+            unsafe_allow_html=True,
+        )
+
+    _render_game_list(matches[:50])
 
 
 # ---------------------------------------------------------------------------
