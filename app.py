@@ -537,12 +537,6 @@ def load_game_library():
     games = get_all_games()
     return {game['title']: game for game in games}
 
-QUICK_ACTIONS = {
-    "What games do you have?": "browse_games",
-    "What's on the menu?": "see_menu",
-    "I need help from a staff member": "staff_help",
-}
-
 # Load menu (syncs from Google Sheets on startup)
 @st.cache_resource
 def load_menu():
@@ -572,102 +566,7 @@ def force_sync_all():
     sync_events_from_sheets()
     sync_auto_rules_from_sheets()
     sync_cart_upsells_from_sheets()
-    # Clear cached responses too
-    if hasattr(pregenerate_quick_responses, 'clear'):
-        pregenerate_quick_responses.clear()
     print("[FORCE SYNC] All data re-synced from Google Sheets")
-
-@st.cache_resource(ttl=86400)
-def pregenerate_quick_responses(_anthropic_client, game_list_str, menu_context):
-    """Pre-generate responses for quick-action buttons on startup"""
-    game_names = [g.strip() for g in game_list_str.split("\n") if g.strip()]
-    responses = {}
-    for prompt_text in QUICK_ACTIONS:
-        try:
-            response = generate_general_response(
-                prompt_text,
-                game_names,
-                _anthropic_client,
-                menu_context
-            )
-            responses[prompt_text] = response
-            print(f"[CACHE] Generated response for: {prompt_text[:30]}...")
-        except Exception as e:
-            print(f"[CACHE] Error generating response for '{prompt_text}': {e}")
-            responses[prompt_text] = None
-    return responses
-
-def _translate_single_response(prompt_text, english_response, language, api_key, results_dict):
-    """Translate a single cached response (runs in background thread)."""
-    try:
-        client = Anthropic(api_key=api_key)
-        result = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            messages=[{"role": "user", "content": f"""Translate the following response into {language}.
-Keep all markdown formatting (bold, italic, bullets, headers) exactly as-is.
-For game titles, keep the original English title but add a {language} translation in parentheses if one exists naturally (e.g. "**Catan** (カタン)" for Japanese).
-For menu item names, keep the original English name but add a brief {language} description.
-Translate everything else including the greeting, descriptions, and sign-off.
-Do NOT add any extra commentary — just output the translated response.
-
-{english_response}"""}]
-        )
-        results_dict[prompt_text] = result.content[0].text
-        print(f"[BG TRANSLATE] Done: {prompt_text[:30]}...")
-    except Exception as e:
-        print(f"[BG TRANSLATE] Error for '{prompt_text[:30]}': {e}")
-        results_dict[prompt_text] = None
-
-def start_background_translation(cached_responses, language, api_key):
-    """Kick off parallel background threads to translate all cached responses."""
-    import threading
-    cache_key = f"translated_cache_{language}"
-
-    # Already translated or in progress
-    if cache_key in st.session_state:
-        return
-    if st.session_state.get(f"_translating_{language}"):
-        return
-
-    # Shared dict for results (thread-safe for item assignment)
-    results = {}
-    st.session_state[f"_translating_{language}"] = True
-    st.session_state[f"_translate_results_{language}"] = results
-
-    threads = []
-    for prompt_text, english_response in cached_responses.items():
-        if not english_response:
-            results[prompt_text] = None
-            continue
-        t = threading.Thread(
-            target=_translate_single_response,
-            args=(prompt_text, english_response, language, api_key, results)
-        )
-        t.start()
-        threads.append(t)
-
-    # Monitor thread in a separate thread so it doesn't block
-    def _finalize():
-        for t in threads:
-            t.join()
-        # Can't write st.session_state from a non-main thread,
-        # but the results dict is already shared via reference
-        print(f"[BG TRANSLATE] All translations for {language} complete")
-
-    threading.Thread(target=_finalize, daemon=True).start()
-
-def get_translated_response(prompt_text, language):
-    """Check if a background-translated response is ready."""
-    cache_key = f"translated_cache_{language}"
-    # Check finalized cache first
-    if cache_key in st.session_state:
-        return st.session_state[cache_key].get(prompt_text)
-    # Check in-progress results
-    results = st.session_state.get(f"_translate_results_{language}", {})
-    if prompt_text in results and results[prompt_text] is not None:
-        return results[prompt_text]
-    return None
 
 # Detect which game the user is asking about
 def detect_game(message, available_games, anthropic_client):
@@ -2289,26 +2188,6 @@ def main():
                         "Staff: Run `python process_rulebooks.py` to add games."))
         return
 
-    # Pre-generate quick-action responses (cached daily)
-    game_list_key = "\n".join(sorted(game_library.keys()))
-    with st.spinner("Preparing your experience..."):
-        cached_responses = pregenerate_quick_responses(anthropic_client, game_list_key, menu_context)
-
-    # If a language was just selected, start background translation
-    if st.session_state.get("pending_language_cache"):
-        lang = st.session_state.pop("pending_language_cache")
-        if lang != "English":
-            start_background_translation(
-                cached_responses, lang, os.environ.get("ANTHROPIC_API_KEY")
-            )
-
-    # Also start background translation if customer has a language preference (e.g. returning user)
-    customer_lang = (st.session_state.customer_profile or {}).get("language_preference", "")
-    if customer_lang and customer_lang != "English":
-        start_background_translation(
-            cached_responses, customer_lang, os.environ.get("ANTHROPIC_API_KEY")
-        )
-
     # Sync deals, events, and auto-deal rules (cold start via cache)
     load_deals_and_events()
 
@@ -2494,7 +2373,6 @@ Keep it to 1-2 sentences. Don't mention their phone number.
 
     # Handle pending quick action from button press or language change
     prompt = None
-    is_cached_response = False
     hide_user_message = False
     if st.session_state.get("pending_lang_greeting"):
         prompt = st.session_state.pending_lang_greeting
@@ -2503,9 +2381,6 @@ Keep it to 1-2 sentences. Don't mention their phone number.
     elif st.session_state.pending_quick_action:
         prompt = st.session_state.pending_quick_action
         st.session_state.pending_quick_action = None
-        # Check if we have a cached response for this
-        if prompt in cached_responses and cached_responses[prompt]:
-            is_cached_response = True
         hide_user_message = True
     elif typed_input:
         prompt = typed_input
@@ -2542,68 +2417,6 @@ Keep it to 1-2 sentences. Don't mention their phone number.
 
         # Check for prompt injection attempts (logs only, doesn't block)
         check_for_injection(prompt, st.session_state.customer_phone)
-
-        # Serve cached response for quick-action buttons
-        response = None
-        has_language_pref = (st.session_state.customer_profile or {}).get("language_preference", "")
-        if is_cached_response and has_language_pref and has_language_pref != "English":
-            # Check if background translation is ready
-            translated_response = get_translated_response(prompt, has_language_pref)
-            if translated_response:
-                response = translated_response
-            else:
-                response = None  # will trigger fresh generation below
-        elif is_cached_response:
-            response = cached_responses[prompt]
-
-        if is_cached_response:
-            # If cached response is None (generation failed), generate fresh (streamed)
-            if not response:
-                with st.chat_message("assistant"):
-                    api_kwargs = generate_general_response(
-                        prompt,
-                        list(game_library.keys()),
-                        anthropic_client,
-                        menu_context,
-                        customer_context,
-                        language=current_lang,
-                        deals_context=deals_context,
-                        events_context=events_context,
-                        cart_context=cart_context,
-                        stream=True,
-                    )
-                    response = st.write_stream(
-                        anthropic_stream_with_retry(anthropic_client, **api_kwargs)
-                    )
-            if response:
-                # Process order tags (server-side validation)
-                response, order_placed = process_order_tags(
-                    response, st.session_state.cart, st.session_state.deals_applied,
-                    eligible_deals, st.session_state.customer_phone, st.session_state.visit_id
-                )
-                # Check for food order staff ping (legacy)
-                response, ping_reason = process_staff_ping_tags(response)
-                # Simulate streaming for cached responses
-                if is_cached_response:
-                    def _stream_cached(text, chunk_size=8):
-                        """Yield text in small chunks to simulate streaming."""
-                        for i in range(0, len(text), chunk_size):
-                            yield text[i:i + chunk_size]
-                            _time.sleep(0.01)
-                    with st.chat_message("assistant"):
-                        st.write_stream(_stream_cached(escape_dollars(response)))
-                else:
-                    with st.chat_message("assistant"):
-                        st.markdown(escape_dollars(response))
-                msg = {"role": "assistant", "content": response}
-                if ping_reason:
-                    msg["pending_ping"] = ping_reason
-                st.session_state.messages.append(msg)
-                if order_placed:
-                    st.session_state.cart = []
-                    st.session_state.deals_applied = []
-                    st.rerun()
-                st.rerun()
 
         # Check if user wants to switch games
         switch_phrases = ["switch to", "change to", "let's play", "we're playing", "now playing", "actually", "instead"]
