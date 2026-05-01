@@ -654,12 +654,15 @@ def _render_search(base):
     st.markdown("<div class='browse-title'>Search for a game</div>",
                 unsafe_allow_html=True)
 
-    # Streamlit's text_input is keyed on session_state; binding to
-    # browse_search_query persists the query across reruns.
-    query = st.text_input(
+    # st_keyup reruns the script on every keypress (with a small debounce),
+    # so the result list filters as the user types — vanilla
+    # st.text_input only reruns on Enter/blur.
+    from st_keyup import st_keyup
+    query = st_keyup(
         "Game name", key="browse_search_query",
         placeholder="Catan, Wingspan, Codenames…",
         label_visibility="collapsed",
+        debounce=200,
     )
 
     matches = _search_games(query or "", base)
