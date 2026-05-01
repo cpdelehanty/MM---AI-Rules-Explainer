@@ -573,11 +573,18 @@ def detect_game(message, available_games, anthropic_client):
     """Detect game from user message. Fast fuzzy match first, LLM fallback for ambiguous cases."""
     msg_lower = message.lower()
 
-    # Fast path: exact or substring match against game titles
-    # Check longest titles first to avoid "7 Wonders" matching before "7 Wonders Duel"
+    # Fast path: exact or substring match against game titles.
+    # Check longest titles first so "7 Wonders Duel" beats "7 Wonders".
+    # IMPORTANT: short titles (<= 3 chars like "Ra", "QE") need word-boundary
+    # matching — naive substring match falsely fires on common words ("rate",
+    # "library", "trade", "draw", etc.) and hijacks the entire chat.
     sorted_games = sorted(available_games, key=len, reverse=True)
     for game in sorted_games:
-        if game.lower() in msg_lower:
+        g_lower = game.lower()
+        if len(g_lower) <= 3:
+            if re.search(r"\b" + re.escape(g_lower) + r"\b", msg_lower):
+                return game
+        elif g_lower in msg_lower:
             return game
 
     # Fuzzy match: check for common abbreviations and partial matches
