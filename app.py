@@ -13,6 +13,7 @@ import time as _time
 from anthropic import Anthropic, APIStatusError
 import voyageai
 from dotenv import load_dotenv
+from config import CLAUDE_MODEL, VOYAGE_MODEL
 from database import (
     init_database, get_all_games, get_game_chunks,
     log_security_event, save_order, get_menu_items, DB_PATH,
@@ -305,7 +306,7 @@ Only extract what is explicitly stated. Do not infer."""
 
         response = anthropic_create_with_retry(
             anthropic_client,
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=200,
             messages=[{"role": "user", "content": extraction_prompt}]
         )
@@ -624,7 +625,7 @@ Game title:"""
     try:
         response = anthropic_create_with_retry(
             anthropic_client,
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=50,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -676,7 +677,7 @@ def answer_question(question, game_title, voyage_client, anthropic_client, menu_
     # Embed question
     question_embedding = voyage_client.embed(
         texts=[question],
-        model="voyage-3",
+        model=VOYAGE_MODEL,
         input_type="query"
     ).embeddings[0]
     
@@ -807,7 +808,7 @@ YOUR ANSWER:"""
     if stream:
         # Return prompt kwargs and metadata for streaming at the display site
         api_kwargs = {
-            "model": "claude-sonnet-4-20250514",
+            "model": CLAUDE_MODEL,
             "max_tokens": 2000,
             "messages": [{"role": "user", "content": prompt}],
         }
@@ -816,7 +817,7 @@ YOUR ANSWER:"""
 
     message = anthropic_create_with_retry(
         anthropic_client,
-        model="claude-sonnet-4-20250514",
+        model=CLAUDE_MODEL,
         max_tokens=2000,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -856,7 +857,7 @@ Your welcome message:"""
 
     message = anthropic_create_with_retry(
         anthropic_client,
-        model="claude-sonnet-4-20250514",
+        model=CLAUDE_MODEL,
         max_tokens=200,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -960,14 +961,14 @@ Your response:"""
 
     if stream:
         return {
-            "model": "claude-sonnet-4-20250514",
+            "model": CLAUDE_MODEL,
             "max_tokens": 2000,
             "messages": [{"role": "user", "content": prompt}],
         }
 
     response = anthropic_create_with_retry(
         anthropic_client,
-        model="claude-sonnet-4-20250514",
+        model=CLAUDE_MODEL,
         max_tokens=2000,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -1034,7 +1035,7 @@ def translate_login_text(language, _api_key):
     # Translate short UI strings
     try:
         result = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=1000,
             messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation.
 
@@ -1051,7 +1052,7 @@ def translate_login_text(language, _api_key):
     # Translate the privacy text separately (it's long and has markdown)
     try:
         result2 = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=1000,
             messages=[{"role": "user", "content": f"""Translate this paragraph into {language}. Keep the markdown formatting (* for italic, ** for bold). Output ONLY the translated text, nothing else.
 
@@ -1073,7 +1074,7 @@ def translate_browse_ui(language, _api_key):
     client = Anthropic(api_key=_api_key)
     try:
         result = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=2000,
             messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation. Keep emojis and game names in English; translate everything else.
 
@@ -1094,7 +1095,7 @@ def translate_app_ui(language, _api_key):
     client = Anthropic(api_key=_api_key)
     try:
         result = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_MODEL,
             max_tokens=1500,
             messages=[{"role": "user", "content": f"""Translate these UI strings into {language}. Return ONLY valid JSON, no markdown fences, no explanation. Keep emojis and brand names (Merry Meeple) in English; translate everything else.
 
@@ -2319,7 +2320,7 @@ Keep it to 1-2 sentences. Don't mention their phone number.
         try:
             welcome_response = anthropic_create_with_retry(
                 anthropic_client,
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_MODEL,
                 max_tokens=200,
                 messages=[{"role": "user", "content": welcome_prompt}]
             )

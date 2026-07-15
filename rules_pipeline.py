@@ -23,9 +23,7 @@ import time
 
 import numpy as np
 
-
-VOYAGE_MODEL = "voyage-3"
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
+from config import CLAUDE_MODEL, VOYAGE_MODEL
 
 COSINE_TOP_K = 15
 RERANK_TOP_K = 8

@@ -31,3 +31,26 @@ groundedness_summary_baseline.csv
 
 # Rulebook gather logs (regenerable)
 gather_rulebooks_log.json
+
+# DB backups from local maintenance passes (large, regenerable)
+backups/
+
+# Rulebooks removed by sanity checks (holding area, not for git)
+rulebooks_removed/
+
+# Scratch PDF page renders from ad-hoc quality checks
+scratch_*.png
+
+# One-shot maintenance / sanity logs and their caches
+*.log
+canonical_audit.json
+faq_errata_cache.json
+rulebook_sanity_cache.json
+bulk_gather_log.json
+bulk_gather_extras_log.json
+audit_sample.json
+golden_results.json
+golden_summary.csv
+
+# Golden Q&A dataset (dev-only reference data, paused)
+golden_set/

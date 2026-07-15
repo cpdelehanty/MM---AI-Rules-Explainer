@@ -94,7 +94,7 @@ def main():
         print("   export ANTHROPIC_API_KEY='your-key'")
         print("   export VOYAGE_API_KEY='your-key'")
         print("\n3. Run the Streamlit app:")
-        print("   streamlit run rulebook_assistant.py")
+        print("   streamlit run app.py")
         print()
         
     except Exception as e:

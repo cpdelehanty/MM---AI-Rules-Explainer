@@ -13,7 +13,7 @@ A working MVP Streamlit app that:
 ## Files Included
 
 ```
-rulebook_assistant.py      # Main Streamlit app (core logic)
+app.py                     # Main Streamlit app (core logic)
 requirements.txt           # Python dependencies
 README.md                  # Full documentation
 test_pdf_processing.py     # Validation script (run this first)
@@ -82,7 +82,7 @@ You should see:
 
 ### Step 5: Run the App
 ```bash
-streamlit run rulebook_assistant.py
+streamlit run app.py
 ```
 
 Browser opens at `http://localhost:8501`

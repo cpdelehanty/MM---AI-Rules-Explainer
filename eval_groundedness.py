@@ -21,6 +21,7 @@ import voyageai
 from anthropic import Anthropic
 from dotenv import load_dotenv
 from database import init_database, get_game_chunks
+from config import CLAUDE_MODEL as JUDGE_MODEL, VOYAGE_MODEL
 
 # Load .env - check current dir first, then walk up to find it
 load_dotenv(override=True)
@@ -37,7 +38,7 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
 TOP_K_RESULTS = 5
 PASS_THRESHOLD = 0.95
 WARN_THRESHOLD = 0.85
-JUDGE_MODEL = "claude-sonnet-4-20250514"
+# JUDGE_MODEL is imported from config as an alias for CLAUDE_MODEL
 
 # --- Chunk retrieval (mirrors app.py logic without importing Streamlit) ---
 
@@ -62,7 +63,7 @@ def retrieve_context(question, game_title, voyage_client):
 
     query_embedding = voyage_client.embed(
         texts=[question],
-        model="voyage-3",
+        model=VOYAGE_MODEL,
         input_type="query"
     ).embeddings[0]
 
@@ -126,7 +127,7 @@ CUSTOMER QUESTION: {question}
 YOUR ANSWER:"""
 
     response = anthropic_client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model=JUDGE_MODEL,
         max_tokens=2000,
         messages=[{"role": "user", "content": prompt}]
     )

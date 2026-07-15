@@ -28,15 +28,23 @@ Target scale: ~400-title game library; AI navigation is the explicit solution to
 
 ```
 /
-├── app.py                    ← Customer-facing Streamlit chat app (521 lines)
-├── database.py               ← SQLite layer (258 lines)
-├── process_rulebooks.py      ← PDF ingestion script, run locally (276 lines)
+├── app.py                    ← Customer-facing Streamlit app (main entry point)
+├── browse_ui.py              ← Browse-games hub / recommender UI
+├── database.py               ← SQLite layer (games, chunks, cafe library)
+├── database_recs.py          ← Recommendation-flow session/prefs/ratings
+├── recommender.py            ← Deterministic 3-question rec engine
+├── config.py                 ← Centralized model IDs (CLAUDE_MODEL, VOYAGE_MODEL)
+├── process_rulebooks.py      ← PDF ingestion (best-of-both pypdf + OCR)
+├── ocr_fallback.py           ← EasyOCR wrapper with rotation-aware retry
+├── rulebook_aliases.py       ← Manual filename→cafe-library title map
+├── sync_menu.py              ← GSheets → SQLite menu sync
 ├── sync_deals.py             ← GSheets → SQLite deals sync (NOT YET BUILT)
-├── rulebook_assistant.py     ← Full RAG + conversation version
-├── rulebook_assistant_simple.py ← Simplified version
-├── test_pdf_processing.py    ← PDF processing tests
+├── sync_bgg_to_cafe_games.py ← BGG metadata sync helper
+├── bulk_enrich_bgg.py        ← BGG bulk enrichment
+├── onboard_game.py           ← Add a new game record
+├── user_store.py             ← Phone-gate / user identity
+├── admin.py                  ← Admin views
 ├── requirements.txt          ← Production deps
-├── requirements_simple.txt   ← Minimal deps
 ├── game_library.db           ← SQLite database (committed to git for deployment)
 ├── rulebooks/                ← PDF source files (NOT in git — copyright)
 ├── .env                      ← API keys (NOT in git)
@@ -155,6 +163,97 @@ Voyage AI free tier = 3 RPM. `process_rulebooks.py` has a hardcoded `RATE_LIMIT_
 
 ### Cosine Similarity
 Similarity is computed in Python (not a vector DB). This is fine for ≤50K chunks. At 400 games × ~25 chunks avg = ~10K chunks, performance is not a concern yet.
+
+### Model versions (updated Feb 2026)
+Anthropic and Voyage retire model versions periodically. All model IDs live in `config.py`, driven by env vars (`CLAUDE_MODEL`, `VOYAGE_MODEL`). Never hardcode model strings in individual files.
+
+**When Anthropic emails a retirement notice:**
+1. Pick the successor model from `docs.anthropic.com/en/docs/about-claude/models`.
+2. Update `CLAUDE_MODEL` in `.env` (local) and Streamlit Cloud Secrets (production).
+3. Redeploy Streamlit Cloud — no code change needed.
+4. Optionally bump the default in `config.py` for future clones.
+
+Check quarterly for deprecation notices at `docs.anthropic.com/en/docs/about-claude/model-deprecations`. If prod ever 404s on a model call, it's almost certainly a retirement.
+
+---
+
+## Architecture Direction (Feb 2026 pivot)
+
+The app is being reframed around **four button-driven paths** with AI restricted to the rules Q&A surface. Chat-first / free-text intent detection is being retired outside of Rules Help.
+
+### The four paths (button hub)
+
+1. **Browse Games** — filterable library, search-by-name, game detail cards. "Not on the shelf?" button fires a staff ping for retrieval.
+2. **Order Food/Drinks** — menu categories → cart → send to staff. Deals surface inline (verbatim `display_text`).
+3. **Game Rules Help** — pick a game (or arrive with one preselected via QR), then Q&A. **This is the only AI surface.**
+4. **Call Staff** — generic ping with a reason picker (Rules / Food / Other / free text). Contextual pings from paths 1–3 still exist alongside this.
+
+### QR entry points
+
+A single `?loc=` URL param drives session context and adjusts the intro banner. The four buttons are identical across contexts.
+
+- `?loc=counter` → welcome banner + phone gate → hub
+- `?loc=table&t=5` → session knows Table 5 → hub
+- `?loc=game&g=<slug>` → deep-link into Rules Help scoped to that game (skips picker)
+
+Stickers on each game box (`Need rules help?`) carry the game-QR URL. Table QRs and a counter QR live at their respective locations.
+
+### Identity model — POS as source of truth
+
+The URL says WHERE. The POS says WHO. The app cross-references at the moment of a scan. No fragile localStorage/session juggling.
+
+- **Counter scan**: employee enters phone verbally at check-in, or customer enters on kiosk → POS party created.
+- **Table scan**: query POS for "who's at Table X" → party attaches to session.
+- **Game scan**: query POS for "who currently has game X checked out" → party attaches to session.
+
+**Staff manually checks out every game to a party** when handing it over. This is a workflow commitment.
+
+### Identity abstraction
+
+All reads go through a small `identity` module so a real POS API replaces the SQLite reads with no changes elsewhere:
+
+```python
+identity.get_party_at_table(table_id) -> Party | None
+identity.get_party_with_game(game_slug) -> Party | None
+identity.get_current_checkouts(party_id) -> list[Checkout]
+```
+
+### Party / checkout schema (deferred until POS is picked)
+
+Intended structure. Not to be built until POS choice is documented — the schema may need to align with what POS exposes.
+
+```sql
+parties(party_id, table_id, party_size, checked_in_at, ended_at)
+party_members(party_member_id, party_id, phone, name)
+checkouts(checkout_id, party_id, game_slug, checked_out_at, returned_at)
+sessions(session_id, party_id, entry_qr, first_seen)
+```
+
+### Staff admin page (deferred until POS is picked)
+
+A `/staff` Streamlit page with three actions (seat a party, check out a game, close out) plus a live board. Serves as our identity backend pre-POS. When POS lands this either goes read-only or is replaced. **Do not build until POS is chosen** — its shape depends on what the POS exposes.
+
+### Phase 1 (buildable now, no POS needed)
+
+- 4-button hub, working across all QR entry contexts
+- Rules Help fully functional; game-QR deep link works
+- Browse, Order, Call Staff routes send real staff pings with table# only
+- QR code generation script (tables + one per game + counter)
+- Staff notification wired (SendGrid or Twilio) — see `STAFF_PING_IMPLEMENTATION.md`
+- Existing rec engine either folds into Browse as a secondary "Help me pick" action, or is dropped
+
+### Phase 2 (waits on POS decision)
+
+- Staff admin page + `parties`/`checkouts`/`party_members`/`sessions` tables
+- POS API integration behind the `identity` module
+- Repeat-visitor recognition, cross-session ratings, personalized recs
+- Payments (still explicitly deferred per Payment Integration section)
+
+### What's being dropped or downgraded
+
+- Free-text intent detection at the top level (game detection, "what are you asking?" NL routing) — replaced by explicit button selection
+- Claude-as-recommender NL parser — already replaced by the 3-question deterministic flow
+- Chat-first framing app-wide — chat is now scoped to Rules Help only
 
 ---
 

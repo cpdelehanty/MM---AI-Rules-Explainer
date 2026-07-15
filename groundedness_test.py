@@ -46,8 +46,7 @@ QUESTIONS_PER_GAME = 30
 # Voyage free tier ~3 RPM. Spacing query embeds at 22s/call gives margin.
 VOYAGE_DELAY = 22.0
 
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
-VOYAGE_MODEL = "voyage-3"
+from config import CLAUDE_MODEL, VOYAGE_MODEL
 TOP_K = 5
 
 RESULTS_FILE = "groundedness_results.json"

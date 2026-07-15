@@ -20,6 +20,7 @@ import sqlite3
 from collections import Counter
 
 from database_recs import DB_PATH
+from config import CLAUDE_MODEL
 
 
 # ---------------------------------------------------------------------------
@@ -530,7 +531,7 @@ def parse_freeform_query(query, anthropic_client, all_games=None):
     )
 
     raw = anthropic_client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model=CLAUDE_MODEL,
         max_tokens=512,
         messages=[{"role": "user", "content": prompt}],
     )

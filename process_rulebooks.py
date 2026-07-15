@@ -14,6 +14,7 @@ import voyageai
 from dotenv import load_dotenv
 from database import init_database, game_exists, add_game, get_all_games, get_library_stats, file_already_processed, DB_PATH
 from rulebook_aliases import ALIASES
+from config import VOYAGE_MODEL
 
 # Load environment variables
 load_dotenv()
@@ -120,13 +121,87 @@ def get_document_type(filename):
     else:
         return 'supplement'
 
+_spellchecker = None
+
+
+def _get_spellchecker():
+    global _spellchecker
+    if _spellchecker is None:
+        from spellchecker import SpellChecker
+        _spellchecker = SpellChecker(language="en", distance=1)
+    return _spellchecker
+
+
+def quality_score(text):
+    """
+    Heuristic quality score, 0-1+. Higher = cleaner, more usable text.
+
+    Uses pyspellchecker to distinguish real English words from OCR garbage
+    (Kuild, Houett, etc.). Penalizes:
+    - Low real-word ratio (main signal)
+    - Excessively long single tokens (Dominion-style no-space failures)
+    """
+    if not text or len(text.strip()) < 20:
+        return 0.0
+
+    tokens = [t.lower().strip(".,!?;:()[]\"'-—") for t in text.split()]
+    tokens = [t for t in tokens if 2 <= len(t) <= 20 and t.replace("-", "").replace("'", "").isalpha()]
+    if not tokens:
+        return 0.0
+
+    sc = _get_spellchecker()
+    # SpellChecker.known(words) returns the SET of unique real English words.
+    # Count occurrences (not uniques) so repeated words like "the" score correctly.
+    real_set = sc.known(set(tokens))
+    n_real = sum(1 for t in tokens if t in real_set)
+    real_ratio = n_real / len(tokens)
+
+    # Space-discipline check: penalize single super-long tokens
+    all_tokens = text.split()
+    max_token_len = max(len(t) for t in all_tokens)
+    if max_token_len > 30:
+        real_ratio *= 20 / max_token_len
+
+    # Small length tiebreaker
+    length_kick = min(len(text) / 2000, 0.05)
+    return real_ratio + length_kick
+
+
 def extract_text_from_pdf(pdf_path):
-    """Extract text from PDF with page numbers"""
+    """
+    Run BOTH pypdf and EasyOCR on every page; pick the higher-scoring output
+    per page. Best-of-both extraction — pypdf's clean text wins on well-formed
+    PDFs, OCR wins where pypdf fails (image-based PDFs, encoding failures).
+    """
+    from ocr_fallback import ocr_pages_from_pdf
     reader = PdfReader(pdf_path)
+    n_pages = len(reader.pages)
+
+    print(f"  🔍 Running pypdf + OCR on all {n_pages} pages...")
+    ocr_texts = ocr_pages_from_pdf(pdf_path, list(range(1, n_pages + 1)))
+
     pages = []
-    for i, page in enumerate(reader.pages, start=1):
-        text = page.extract_text()
-        pages.append({"page": i, "text": text})
+    wins = {"pypdf": 0, "ocr": 0, "tie": 0}
+    for i, pypdf_page in enumerate(reader.pages, start=1):
+        pypdf_text = (pypdf_page.extract_text() or "").strip()
+        ocr_text = (ocr_texts.get(i, "") or "").strip()
+
+        py_score = quality_score(pypdf_text)
+        oc_score = quality_score(ocr_text)
+
+        # Slightly prefer pypdf when scores are close (< 0.05 apart) since it
+        # produces cleaner text on well-formed PDFs
+        if py_score >= oc_score - 0.05:
+            if py_score > oc_score:
+                wins["pypdf"] += 1
+            else:
+                wins["tie"] += 1
+            pages.append({"page": i, "text": pypdf_text})
+        else:
+            wins["ocr"] += 1
+            pages.append({"page": i, "text": ocr_text})
+
+    print(f"     Winners: pypdf={wins['pypdf']}  OCR={wins['ocr']}  tie(pypdf)={wins['tie']}")
     return pages
 
 def chunk_text(pages, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
@@ -174,7 +249,7 @@ def create_embeddings(chunks, voyage_client):
         print(f"  Processing batch {batch_num}/{total_batches} ({len(batch)} chunks)...")
         
         try:
-            result = voyage_client.embed(texts=batch, model="voyage-3", input_type="document")
+            result = voyage_client.embed(texts=batch, model=VOYAGE_MODEL, input_type="document")
             all_embeddings.extend(result.embeddings)
             print(f"  ✅ Batch {batch_num} complete")
             
@@ -190,7 +265,7 @@ def create_embeddings(chunks, voyage_client):
             
             # Retry once
             try:
-                result = voyage_client.embed(texts=batch, model="voyage-3", input_type="document")
+                result = voyage_client.embed(texts=batch, model=VOYAGE_MODEL, input_type="document")
                 all_embeddings.extend(result.embeddings)
                 print(f"  ✅ Retry successful")
             except Exception as retry_error:

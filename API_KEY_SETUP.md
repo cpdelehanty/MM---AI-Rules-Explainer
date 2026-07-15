@@ -73,7 +73,7 @@ pip install python-dotenv
 ### 4. Run the App
 
 ```bash
-streamlit run rulebook_assistant.py
+streamlit run app.py
 ```
 
 The app automatically loads keys from `.env` - no need to set environment variables manually!

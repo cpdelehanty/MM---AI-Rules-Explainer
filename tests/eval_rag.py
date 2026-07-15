@@ -34,6 +34,7 @@ from anthropic import Anthropic
 import voyageai
 import numpy as np
 from database import init_database, get_game_chunks, get_all_games
+from config import CLAUDE_MODEL, VOYAGE_MODEL
 
 
 def cosine_similarity(vec1, vec2):
@@ -49,8 +50,8 @@ def search_chunks(query_embedding, chunks, top_k=5):
     return [chunk for _, chunk in similarities[:top_k]]
 
 # --- Config ---
-JUDGE_MODEL = "claude-sonnet-4-20250514"
-ANSWER_MODEL = "claude-sonnet-4-20250514"
+JUDGE_MODEL = CLAUDE_MODEL
+ANSWER_MODEL = CLAUDE_MODEL
 TOP_K = 5
 EVAL_FILE = os.path.join(os.path.dirname(__file__), "eval_questions.json")
 
@@ -77,7 +78,7 @@ def get_answer(question, game_title, voyage_client, anthropic_client):
 
     # Embed query
     query_embedding = voyage_client.embed(
-        texts=[question], model="voyage-3", input_type="query"
+        texts=[question], model=VOYAGE_MODEL, input_type="query"
     ).embeddings[0]
 
     # Retrieve top chunks
