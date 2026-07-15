@@ -24,7 +24,9 @@ from anthropic import Anthropic, APIStatusError
 from dotenv import load_dotenv
 
 from config import CLAUDE_MODEL, VOYAGE_MODEL
-from database import DB_PATH, get_all_games, get_game_chunks, init_database
+from database import (
+    DB_PATH, get_all_games, get_chunks_including_parent, init_database,
+)
 
 load_dotenv(override=True)
 
@@ -103,7 +105,7 @@ _chunk_cache = {}
 
 def get_cached_chunks(game_title):
     if game_title not in _chunk_cache:
-        _chunk_cache[game_title] = get_game_chunks(game_title)
+        _chunk_cache[game_title] = get_chunks_including_parent(game_title)
     return _chunk_cache[game_title]
 
 
@@ -116,7 +118,14 @@ def build_rules_prompt(question, game_title, top_chunks, language="English"):
             "errata": "Errata",
             "supplement": "Supplement",
         }.get(c.get("source_type", "rulebook"), "Rulebook")
-        context_parts.append(f"[{source_label} - Page {c['page']}]\n{c['text']}")
+        # When we've merged in base-game chunks under an expansion, tag the
+        # citation so the answer can say `Rulebook p. 5 (base Catan)` vs
+        # `Rulebook p. 3 (Cities & Knights)`.
+        origin = c.get("game_source")
+        origin_tag = f" [{origin}]" if origin and origin != game_title else ""
+        context_parts.append(
+            f"[{source_label}{origin_tag} - Page {c['page']}]\n{c['text']}"
+        )
     context = "\n\n---\n\n".join(context_parts)
 
     setup_kw = ["setup", "set up", "start", "beginning", "prepare",
@@ -155,6 +164,7 @@ Rules for answering:
 - When citing information, include BOTH the source type AND page number.
   Example: "According to the FAQ, nectar tokens can be spent as wild food (FAQ p. 2)"
   Example: "The rulebook states each player draws 5 cards (Rulebook p. 3)"
+- Some sources may be tagged with a game name in brackets like "[Catan]" or "[Cities & Knights]" — this indicates whether the rule is from the base game or an expansion. If a rule comes from a base game (e.g., someone playing Catan: Cities & Knights asks about a rule that's in base Catan), say so explicitly: "This is a base Catan rule — the rulebook says... (Rulebook p. 5, base Catan)".
 - If information comes from multiple sources, cite all of them.
 - If the answer isn't in the provided sources, say: "I don't see that in the materials \
 I have access to. Tap the '📞 Get staff help' button below if you'd like a staff \

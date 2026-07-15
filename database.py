@@ -30,13 +30,27 @@ def _serialize_embedding(embedding):
     return np.asarray(embedding, dtype=EMBEDDING_DTYPE).tobytes()
 
 
+EMBED_DIM = 1024  # voyage-3
+_BINARY_EMBED_BYTES = EMBED_DIM * 4  # float32
+
+
 def _deserialize_embedding(blob):
-    """Read a float32-bytes embedding back into a numpy array (or list for legacy JSON rows)."""
-    # Backward compat: legacy rows may still be JSON strings if migration hasn't run.
-    if isinstance(blob, str) or (isinstance(blob, (bytes, bytearray)) and blob[:1] == b"["):
-        text = blob.decode("utf-8") if isinstance(blob, (bytes, bytearray)) else blob
-        return np.array(json.loads(text), dtype=EMBEDDING_DTYPE)
-    return np.frombuffer(blob, dtype=EMBEDDING_DTYPE)
+    """
+    Read a float32-bytes embedding back into a numpy array.
+
+    Distinguishes binary from legacy JSON by size — a binary voyage-3
+    embedding is exactly 4096 bytes; a JSON-encoded one is ~20KB. Content
+    sniffing (`blob[:1] == b"["`) is unsafe because a legit float32 blob
+    can start with 0x5B ('['), which caused a UnicodeDecodeError crash.
+    """
+    if isinstance(blob, str):
+        return np.array(json.loads(blob), dtype=EMBEDDING_DTYPE)
+    if not isinstance(blob, (bytes, bytearray)):
+        raise ValueError(f"Unexpected embedding type: {type(blob)}")
+    if len(blob) == _BINARY_EMBED_BYTES:
+        return np.frombuffer(blob, dtype=EMBEDDING_DTYPE)
+    # Legacy JSON row still lurking in the DB — parse the text
+    return np.array(json.loads(blob.decode("utf-8")), dtype=EMBEDDING_DTYPE)
 
 
 def init_database():
@@ -223,6 +237,48 @@ def get_game_chunks(game_title):
         }
         for c in chunks
     ]
+
+
+def _split_expansion_prefix(title):
+    """`Catan: Cities & Knights` -> `Catan`; return None if not an expansion-style title."""
+    for sep in (": ", " – ", " - "):
+        if sep in title:
+            prefix = title.split(sep, 1)[0].strip()
+            if prefix and prefix != title:
+                return prefix
+    return None
+
+
+def get_chunks_including_parent(game_title):
+    """
+    Retrieval-scope helper. Returns this game's chunks plus its parent game's
+    chunks if the title is `<Parent>: <Suffix>` (or similar) AND the parent
+    exists in the library. Each chunk is tagged with `game_source` so answer
+    citations can distinguish base vs expansion.
+
+    Motivation: someone playing "Catan: Cities & Knights" and asking a base-Catan
+    rule (like the 7-hand-limit discard) shouldn't get a "not in materials"
+    deflection when we've got base Catan indexed alongside.
+    """
+    own = get_game_chunks(game_title) or []
+    for c in own:
+        c["game_source"] = game_title
+
+    parent = _split_expansion_prefix(game_title)
+    if not parent:
+        return own
+
+    # Confirm parent exists before hitting get_game_chunks again
+    conn = sqlite3.connect(DB_PATH)
+    exists = conn.execute("SELECT 1 FROM games WHERE title = ?", (parent,)).fetchone()
+    conn.close()
+    if not exists:
+        return own
+
+    parent_chunks = get_game_chunks(parent) or []
+    for c in parent_chunks:
+        c["game_source"] = parent
+    return own + parent_chunks
 
 
 def delete_game(title):
