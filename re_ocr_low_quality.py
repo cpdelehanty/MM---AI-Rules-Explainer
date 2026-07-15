@@ -169,8 +169,9 @@ def apply_replacements(improved, cur, conn, voyage_client):
         """, (e["game_id"], e["source_type"], e["page_number"]))
 
     # Insert all new chunks
+    from database import _serialize_embedding
     for c in all_new:
-        emb_json = json.dumps(list(c["embedding"]))
+        emb_blob = _serialize_embedding(c["embedding"])
         # Fetch a new chunk_id per game
         cur.execute("""
             SELECT COALESCE(MAX(chunk_id), -1) + 1 FROM chunks WHERE game_id = ?
@@ -179,7 +180,7 @@ def apply_replacements(improved, cur, conn, voyage_client):
         cur.execute("""
             INSERT INTO chunks (game_id, chunk_id, page_number, text, embedding, source_type)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (c["game_id"], new_chunk_id, c["page_number"], c["text"], emb_json, c["source_type"]))
+        """, (c["game_id"], new_chunk_id, c["page_number"], c["text"], emb_blob, c["source_type"]))
     conn.commit()
     print(f"  ✅ Replaced {len(improved)} page(s), inserted {len(all_new)} new chunk(s)")
 

@@ -6,8 +6,30 @@ Stores processed rulebooks in SQLite
 import sqlite3
 import json
 import os
+import numpy as np
 
 DB_PATH = "game_library.db"
+
+# Embedding storage format.
+# Embeddings are stored in the `chunks.embedding` column as raw float32
+# little-endian bytes (numpy tobytes / frombuffer). This is ~5.5x smaller
+# than JSON-encoded lists of floats and keeps the DB well under the
+# GitHub 100MB per-file limit for our target ~500-game library.
+EMBEDDING_DTYPE = np.float32
+
+
+def _serialize_embedding(embedding):
+    """Convert a list/array of floats to compact float32 bytes for BLOB storage."""
+    return np.asarray(embedding, dtype=EMBEDDING_DTYPE).tobytes()
+
+
+def _deserialize_embedding(blob):
+    """Read a float32-bytes embedding back into a numpy array (or list for legacy JSON rows)."""
+    # Backward compat: legacy rows may still be JSON strings until the migration runs.
+    if isinstance(blob, str) or (isinstance(blob, (bytes, bytearray)) and blob[:1] == b"["):
+        text = blob.decode("utf-8") if isinstance(blob, (bytes, bytearray)) else blob
+        return np.array(json.loads(text), dtype=EMBEDDING_DTYPE)
+    return np.frombuffer(blob, dtype=EMBEDDING_DTYPE)
 
 def init_database():
     """Initialize database schema"""
@@ -363,13 +385,12 @@ def add_game(title, filename, total_pages, chunks_with_embeddings, source_type='
         
         # Insert chunks with source type
         for chunk in chunks_with_embeddings:
-            # Serialize embedding as JSON
-            embedding_json = json.dumps(chunk['embedding'])
-            
+            embedding_blob = _serialize_embedding(chunk['embedding'])
+
             cursor.execute("""
                 INSERT INTO chunks (game_id, chunk_id, page_number, text, embedding, source_type)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (game_id, chunk['chunk_id'], chunk['page'], chunk['text'], embedding_json, source_type))
+            """, (game_id, chunk['chunk_id'], chunk['page'], chunk['text'], embedding_blob, source_type))
         
         # Record this file as processed
         cursor.execute("""
@@ -440,7 +461,7 @@ def get_game_chunks(game_title):
             "chunk_id": c[0],
             "page": c[1],
             "text": c[2],
-            "embedding": json.loads(c[3]),
+            "embedding": _deserialize_embedding(c[3]),
             "source_type": c[4] if len(c) > 4 else "rulebook"  # Backward compatibility
         }
         for c in chunks
