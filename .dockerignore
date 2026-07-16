@@ -1,0 +1,47 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Local Python
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+
+# Dev tooling / IDE
+.claude
+.vscode
+.idea
+.DS_Store
+
+# Env files (secrets come from `fly secrets set`)
+.env
+.env.local
+api_keys.env
+
+# Dev data that shouldn't ship to prod
+backups/
+rulebooks/
+rulebooks_removed/
+golden_set/
+tests/
+scratch_*.png
+scratch_*
+*.log
+*.tmp
+
+# Dev-only reference data
+golden_results.json
+golden_results.md
+golden_results_hybrid.json
+golden_results_hybrid.md
+golden_results_hybrid_rerank.json
+golden_results_hybrid_rerank.md
+judged_baseline.json
+judged_hybrid.json
+
+# Docs stay in-repo but don't need to be in the image
+docs/
+*.md
