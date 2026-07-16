@@ -12,6 +12,7 @@ Output:
   golden_results.json   — full structured records
   golden_results.md     — side-by-side markdown for human review
 """
+import argparse
 import json
 import os
 import sys
@@ -26,11 +27,12 @@ from dotenv import load_dotenv
 
 from config import CLAUDE_MODEL, VOYAGE_MODEL
 from database import get_chunks_including_parent
+from retrieval import hybrid_search, hybrid_with_rerank
 
 load_dotenv(override=True)
 
 
-TOP_K = 5
+TOP_K = 8                   # bumped from 5 — wider context, marginal cost
 VOYAGE_BATCH = 100          # batch size for embed calls (Voyage supports up to 128)
 VOYAGE_BATCH_DELAY = 25     # seconds between embed batches (3 RPM free tier)
 CLAUDE_MAX_TOKENS = 1500
@@ -45,10 +47,28 @@ def cosine(v1, v2):
     return float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
 
 
-def search_chunks(query_emb, chunks, top_k=TOP_K):
+def search_baseline(query, query_emb, chunks, claude_client=None, top_k=TOP_K):
+    """Semantic-only cosine top-k (the original production behavior)."""
     scored = [(cosine(query_emb, c["embedding"]), c) for c in chunks]
     scored.sort(reverse=True, key=lambda x: x[0])
     return [c for _, c in scored[:top_k]]
+
+
+def search_hybrid(query, query_emb, chunks, claude_client=None, top_k=TOP_K):
+    """BM25 + semantic blended via RRF."""
+    return hybrid_search(query, query_emb, chunks, top_k=top_k)
+
+
+def search_hybrid_rerank(query, query_emb, chunks, claude_client=None, top_k=TOP_K):
+    """Hybrid top-15 → Claude rerank → top-8."""
+    return hybrid_with_rerank(query, query_emb, chunks, claude_client, top_k=top_k)
+
+
+SEARCH_MODES = {
+    "baseline": search_baseline,
+    "hybrid": search_hybrid,
+    "hybrid+rerank": search_hybrid_rerank,
+}
 
 
 def build_rules_prompt(question, game_title, top_chunks):
@@ -217,12 +237,23 @@ def write_markdown(rows, path):
 # --------------------------------------------------------------------------
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=list(SEARCH_MODES),
+                        default="hybrid",
+                        help="Retrieval mode to evaluate.")
+    parser.add_argument("--output", default="golden_results.json",
+                        help="Output JSON file (Markdown derived automatically).")
+    args = parser.parse_args()
+
     if not os.environ.get("VOYAGE_API_KEY") or not os.environ.get("ANTHROPIC_API_KEY"):
         print("ERROR: VOYAGE_API_KEY and ANTHROPIC_API_KEY required in .env")
         sys.exit(1)
 
     voyage_client = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
     anthropic_client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+    search_fn = SEARCH_MODES[args.mode]
+    print(f"Retrieval mode: {args.mode} (top_k={TOP_K})\n")
 
     rows = load_rows()
     if not rows:
@@ -232,12 +263,10 @@ def main():
     print(f"Loaded {len(rows)} question(s) across "
           f"{len({r['game'] for r in rows})} game(s).\n")
 
-    # Batch embed
     print("Embedding queries with Voyage AI...")
     embs = embed_all(voyage_client, [r["question"] for r in rows])
     print(f"Got {len(embs)} embeddings.\n")
 
-    # Per-game chunk cache
     chunk_cache = {}
     def get_chunks(game):
         if game not in chunk_cache:
@@ -251,7 +280,8 @@ def main():
             row["bot_answer"] = "(no chunks indexed for this game)"
             row["source_pages"] = []
             continue
-        top = search_chunks(emb, chunks)
+        top = search_fn(row["question"], emb, chunks,
+                        claude_client=anthropic_client, top_k=TOP_K)
         prompt = build_rules_prompt(row["question"], row["game"], top)
         try:
             row["bot_answer"] = call_claude(anthropic_client, prompt)
@@ -261,13 +291,13 @@ def main():
         if i % 10 == 0 or i == len(rows):
             print(f"  {i}/{len(rows)}")
 
-    # Persist
-    with open("golden_results.json", "w", encoding="utf-8") as f:
+    with open(args.output, "w", encoding="utf-8") as f:
         json.dump(rows, f, indent=2, ensure_ascii=False)
-    print(f"\nWrote golden_results.json ({len(rows)} rows)")
+    print(f"\nWrote {args.output} ({len(rows)} rows)")
 
-    write_markdown(rows, "golden_results.md")
-    print("Wrote golden_results.md")
+    md_path = args.output.replace(".json", ".md")
+    write_markdown(rows, md_path)
+    print(f"Wrote {md_path}")
 
 
 if __name__ == "__main__":

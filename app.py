@@ -17,7 +17,6 @@ import re
 import sqlite3
 import time as _time
 
-import numpy as np
 import streamlit as st
 import voyageai
 from anthropic import Anthropic, APIStatusError
@@ -27,11 +26,12 @@ from config import CLAUDE_MODEL, VOYAGE_MODEL
 from database import (
     DB_PATH, get_all_games, get_chunks_including_parent, init_database,
 )
+from retrieval import hybrid_search
 
 load_dotenv(override=True)
 
 
-TOP_K_RESULTS = 5
+TOP_K_RESULTS = 8   # bumped from 5 with the hybrid retrieval switch
 LANGUAGES = [
     ("🇺🇸", "English", "English"),
     ("🇪🇸", "Español", "Spanish"),
@@ -86,18 +86,14 @@ def anthropic_stream_with_retry(client, max_retries=3, **kwargs):
 
 
 # --------------------------------------------------------------------------
-# RAG — cosine over pre-loaded chunks; per-game in-memory cache
+# RAG — hybrid BM25 + semantic (Reciprocal Rank Fusion) over pre-loaded chunks
 # --------------------------------------------------------------------------
+# Hybrid retrieval measured on the golden set: 37% -> 27% deflect rate,
+# +15 fixes, 0 regressions vs. semantic-only. BM25 catches queries where
+# specific game terminology matters ("longest road", "witch card") that
+# Voyage's general embeddings underweight; semantic still handles paraphrase
+# and conceptual questions. RRF blends them without score normalization.
 
-def cosine_similarity(v1, v2):
-    v1, v2 = np.array(v1), np.array(v2)
-    return float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
-
-
-def search_chunks(query_embedding, chunks, top_k=TOP_K_RESULTS):
-    scored = [(cosine_similarity(query_embedding, c["embedding"]), c) for c in chunks]
-    scored.sort(reverse=True, key=lambda x: x[0])
-    return [c for _, c in scored[:top_k]]
 
 
 _chunk_cache = {}
@@ -344,7 +340,7 @@ if user_input:
             q_emb = voyage_client.embed(
                 texts=[user_input], model=VOYAGE_MODEL, input_type="query"
             ).embeddings[0]
-            top = search_chunks(q_emb, chunks)
+            top = hybrid_search(user_input, q_emb, chunks, top_k=TOP_K_RESULTS)
             prompt = build_rules_prompt(
                 user_input, game_title, top,
                 language=st.session_state.get("language", "English"),
