@@ -200,14 +200,25 @@ def build_rules_prompt(question, game_title, top_chunks, language="English"):
     else:
         instruction = "Provide a clear, direct answer to the specific question asked."
 
-    lang_hint = (
+    # Language directive: put it BOTH at the top (so it colors the whole
+    # prompt) AND right before the answer (so it survives even when the
+    # conversation history we send is entirely in English — Claude tends to
+    # follow the language of the surrounding turns unless told otherwise).
+    lang_hint_top = (
         f"\nIMPORTANT: Respond entirely in {language}. Keep the game title in English."
+        if language != "English" else ""
+    )
+    lang_hint_bottom = (
+        f"\n\nREMINDER: Regardless of what language earlier messages in this "
+        f"conversation used, write YOUR ANSWER entirely in {language}. Do not "
+        f"reply in English. Keep game titles, source labels (Rulebook/FAQ/Errata), "
+        f"and page numbers as-is."
         if language != "English" else ""
     )
 
     return f"""You are a helpful board game rules assistant at The Merry Meeple cafe. \
 Answer the customer's question about **{game_title}** based ONLY on the source documents \
-provided below.{lang_hint}
+provided below.{lang_hint_top}
 
 The sources may include:
 - Rulebook (official game rules)
@@ -233,7 +244,7 @@ member to come help you."
 SOURCE DOCUMENTS FOR {game_title.upper()}:
 {context}
 
-CUSTOMER QUESTION: {question}
+CUSTOMER QUESTION: {question}{lang_hint_bottom}
 
 YOUR ANSWER:"""
 
@@ -336,11 +347,19 @@ if not game_title:
 
 # --- Chat surface ----------------------------------------------------------
 
-# Reset chat when the game changes
+# Language labels/names — derived once so we can reference them in the state
+# reset block below and in the selectbox.
+LANG_LABELS = [f"{flag}  {native}" for flag, native, _ in LANGUAGES]
+LANG_NAMES = [name for _, _, name in LANGUAGES]
+DEFAULT_LANG_LABEL = LANG_LABELS[0]  # English
+
+
+# Reset chat when the game changes. Also reset the language-dropdown widget
+# state so the picker snaps back to English for the new game.
 if st.session_state.get("_active_game") != game_title:
     st.session_state._active_game = game_title
     st.session_state.messages = []
-    st.session_state.language = "English"
+    st.session_state.language_pick = DEFAULT_LANG_LABEL
 
 
 # Header: game switcher (dev-visible) + language dropdown
@@ -357,13 +376,15 @@ with c1:
         st.session_state.pop("messages", None)
         st.rerun()
 with c2:
-    lang_labels = [f"{flag}  {native}" for flag, native, _ in LANGUAGES]
-    lang_names = [lang for _, _, lang in LANGUAGES]
-    default_idx = lang_names.index(st.session_state.get("language", "English"))
-    # Both selectboxes need visible labels so they align vertically on desktop.
-    # With `collapsed`, the language box floats up above the game switcher.
-    picked_label = st.selectbox("Language", lang_labels, index=default_idx)
-    st.session_state.language = lang_names[lang_labels.index(picked_label)]
+    # Bind the selectbox to session_state via key= — this is the canonical
+    # Streamlit pattern. Passing both `index=` and reading/writing the same
+    # session_state key on every rerun fights the widget's own state and
+    # silently reverts the user's selection.
+    st.selectbox("Language", LANG_LABELS, key="language_pick")
+
+# Derive the current language NAME from whatever the widget currently holds.
+picked_label = st.session_state.get("language_pick", DEFAULT_LANG_LABEL)
+current_language = LANG_NAMES[LANG_LABELS.index(picked_label)]
 
 
 st.markdown(f"### {game_title}")
@@ -413,7 +434,7 @@ if user_input:
             top = search_chunks(q_emb, chunks)
             prompt = build_rules_prompt(
                 user_input, game_title, top,
-                language=st.session_state.get("language", "English"),
+                language=current_language,
             )
             source_pages = sorted({c["page"] for c in top})
 
