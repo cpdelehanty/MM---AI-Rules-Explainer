@@ -17,6 +17,7 @@ import re
 import sqlite3
 import time as _time
 
+import numpy as np
 import streamlit as st
 import voyageai
 from anthropic import Anthropic, APIStatusError
@@ -26,12 +27,11 @@ from config import CLAUDE_MODEL, VOYAGE_MODEL
 from database import (
     DB_PATH, get_all_games, get_chunks_including_parent, init_database,
 )
-from retrieval import hybrid_search
 
 load_dotenv(override=True)
 
 
-TOP_K_RESULTS = 8   # bumped from 5 with the hybrid retrieval switch
+TOP_K_RESULTS = 5
 LANGUAGES = [
     ("🇺🇸", "English", "English"),
     ("🇪🇸", "Español", "Spanish"),
@@ -86,14 +86,24 @@ def anthropic_stream_with_retry(client, max_retries=3, **kwargs):
 
 
 # --------------------------------------------------------------------------
-# RAG — hybrid BM25 + semantic (Reciprocal Rank Fusion) over pre-loaded chunks
+# RAG — semantic top-K cosine over pre-loaded chunks; per-game in-memory cache
 # --------------------------------------------------------------------------
-# Hybrid retrieval measured on the golden set: 37% -> 27% deflect rate,
-# +15 fixes, 0 regressions vs. semantic-only. BM25 catches queries where
-# specific game terminology matters ("longest road", "witch card") that
-# Voyage's general embeddings underweight; semantic still handles paraphrase
-# and conceptual questions. RRF blends them without score normalization.
+# Note: an earlier hybrid BM25 + semantic pass was tried and rolled back —
+# it reduced deflects but at the cost of confidently-wrong regressions
+# (fabricated quotes, mixed-rule confusion) that were worse for the customer
+# than a safe deflection. retrieval.py stays in the repo for future
+# experiments (e.g. hybrid at top-5, tighter anti-fabrication prompting).
 
+
+def cosine_similarity(v1, v2):
+    v1, v2 = np.array(v1), np.array(v2)
+    return float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
+
+
+def search_chunks(query_embedding, chunks, top_k=TOP_K_RESULTS):
+    scored = [(cosine_similarity(query_embedding, c["embedding"]), c) for c in chunks]
+    scored.sort(reverse=True, key=lambda x: x[0])
+    return [c for _, c in scored[:top_k]]
 
 
 _chunk_cache = {}
@@ -340,7 +350,7 @@ if user_input:
             q_emb = voyage_client.embed(
                 texts=[user_input], model=VOYAGE_MODEL, input_type="query"
             ).embeddings[0]
-            top = hybrid_search(user_input, q_emb, chunks, top_k=TOP_K_RESULTS)
+            top = search_chunks(q_emb, chunks)
             prompt = build_rules_prompt(
                 user_input, game_title, top,
                 language=st.session_state.get("language", "English"),
