@@ -115,6 +115,58 @@ def get_cached_chunks(game_title):
     return _chunk_cache[game_title]
 
 
+# Short affirmative/negative follow-ups that only make sense given prior context.
+# If the current message is one of these (or otherwise very short), we
+# concatenate it with the last real user turn for retrieval.
+_FOLLOWUP_TOKENS = {
+    "yes", "yeah", "yep", "yup", "sure", "correct", "right", "ok", "okay",
+    "y", "no", "nope", "not really", "please", "yes please", "no thanks",
+    "definitely", "of course",
+}
+_MAX_HISTORY_TURNS = 12  # cap the history we replay to Claude (keeps token cost sane)
+
+
+def build_retrieval_query(user_input, prior_messages):
+    """
+    If the user's current input is a bare affirmative ("yes") or otherwise
+    very short, embedding it directly retrieves noise. Augment with the
+    most recent user turn so "yes" to "are you asking about setup?" still
+    pulls setup chunks.
+    """
+    normalized = user_input.strip().lower().rstrip(".,!?")
+    is_short = len(user_input.strip()) < 40
+    is_followup = normalized in _FOLLOWUP_TOKENS
+    if not (is_short or is_followup):
+        return user_input
+    # Walk back for the most recent user message that wasn't this one.
+    for m in reversed(prior_messages):
+        if m.get("role") == "user":
+            return f"{m['content']} — follow-up: {user_input}"
+    return user_input
+
+
+def build_message_history(session_messages, current_prompt):
+    """
+    Assemble the messages array we send to Claude. All prior turns as they
+    were rendered, then the current turn replaced with the RAG-wrapped
+    prompt (so the answer sees the context + instructions freshly).
+
+    `session_messages` includes the just-appended current user turn — we
+    drop that copy and append the wrapped version instead.
+    """
+    prior = session_messages[:-1]
+    # Trim to the most recent N turns
+    if len(prior) > _MAX_HISTORY_TURNS:
+        prior = prior[-_MAX_HISTORY_TURNS:]
+    api_messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in prior
+        if m.get("role") in ("user", "assistant")
+    ]
+    api_messages.append({"role": "user", "content": current_prompt})
+    return api_messages
+
+
 def build_rules_prompt(question, game_title, top_chunks, language="English"):
     context_parts = []
     for c in top_chunks:
@@ -348,8 +400,15 @@ if user_input:
     with st.chat_message("assistant"):
         with st.spinner("Consulting the rulebook..."):
             chunks = get_cached_chunks(game_title)
+            # For follow-ups like "yes" or short clarifications, embed with
+            # the prior user turn so retrieval sees what's actually being
+            # asked. `session_state.messages[:-1]` excludes the current turn
+            # we just appended.
+            retrieval_query = build_retrieval_query(
+                user_input, st.session_state.messages[:-1]
+            )
             q_emb = voyage_client.embed(
-                texts=[user_input], model=VOYAGE_MODEL, input_type="query"
+                texts=[retrieval_query], model=VOYAGE_MODEL, input_type="query"
             ).embeddings[0]
             top = search_chunks(q_emb, chunks)
             prompt = build_rules_prompt(
@@ -358,12 +417,13 @@ if user_input:
             )
             source_pages = sorted({c["page"] for c in top})
 
+        api_messages = build_message_history(st.session_state.messages, prompt)
         response_text = st.write_stream(
             anthropic_stream_with_retry(
                 anthropic_client,
                 model=CLAUDE_MODEL,
                 max_tokens=2000,
-                messages=[{"role": "user", "content": prompt}],
+                messages=api_messages,
             )
         )
         if source_pages:
