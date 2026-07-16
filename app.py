@@ -308,8 +308,9 @@ with c2:
     lang_labels = [f"{flag}  {native}" for flag, native, _ in LANGUAGES]
     lang_names = [lang for _, _, lang in LANGUAGES]
     default_idx = lang_names.index(st.session_state.get("language", "English"))
-    picked_label = st.selectbox("Language", lang_labels, index=default_idx,
-                                 label_visibility="collapsed")
+    # Both selectboxes need visible labels so they align vertically on desktop.
+    # With `collapsed`, the language box floats up above the game switcher.
+    picked_label = st.selectbox("Language", lang_labels, index=default_idx)
     st.session_state.language = lang_names[lang_labels.index(picked_label)]
 
 
