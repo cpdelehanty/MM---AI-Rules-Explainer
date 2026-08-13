@@ -284,6 +284,76 @@ st.set_page_config(
 )
 
 
+# ------------------------------------------------------------------
+# Mobile UX polish — the customer surface is 100% phone-first (QR
+# from the game box). Streamlit's defaults have three papercuts on
+# iOS Safari that we address here:
+#
+#   1. Tapping a form field triggers zoom that never restores.
+#      Font-size 16px on all inputs is the standard suppression;
+#      belt-and-suspenders: also disable programmatic zoom.
+#   2. New messages don't scroll into view — user has to scroll
+#      after every question. Auto-scroll on rerender fixes it.
+#   3. When the mobile keyboard opens, Streamlit's `stBottom`
+#      container leaves 56px of dead space below the input for the
+#      iOS home indicator, which reads as awkward blank space.
+#      Collapse that using env(safe-area-inset-bottom) so it only
+#      matters when the keyboard is closed.
+# ------------------------------------------------------------------
+st.markdown("""
+<style>
+    /* iOS zoom prevention — belt-and-suspenders on top of font-size 16px */
+    input[type="text"],
+    input[role="combobox"],
+    textarea,
+    [data-testid="stChatInputTextArea"] {
+        font-size: 16px !important;
+        -webkit-text-size-adjust: 100%;
+    }
+
+    /* Use dynamic viewport height so the layout shrinks when the mobile
+       keyboard opens. Streamlit defaults to vh which iOS doesn't shrink. */
+    html, body, .stApp {
+        min-height: 100dvh !important;
+    }
+    section[data-testid="stMain"] {
+        min-height: 100dvh !important;
+    }
+
+    /* Collapse Streamlit's over-generous bottom padding down to the
+       actual iOS safe-area value — keyboard-open state gets ~0 dead
+       space, keyboard-closed state still respects the home indicator. */
+    [data-testid="stBottomBlockContainer"] {
+        padding-top: 0.5rem !important;
+        padding-bottom: env(safe-area-inset-bottom, 0.5rem) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+# Auto-scroll to the newest chat message on every rerender.
+# Streamlit doesn't include `<script>` in st.markdown output for
+# security, so we use an invisible components.html iframe to inject JS
+# that reaches into window.parent (the app) to scroll.
+_scroll_snippet = """
+<script>
+    const scrollLatest = () => {
+        try {
+            const doc = window.parent.document;
+            const msgs = doc.querySelectorAll('[data-testid="stChatMessage"]');
+            if (msgs.length) {
+                msgs[msgs.length - 1].scrollIntoView({behavior: 'smooth', block: 'end'});
+            }
+        } catch (e) {}
+    };
+    // Delay for streaming — the response fills in over ~2s
+    setTimeout(scrollLatest, 100);
+    setTimeout(scrollLatest, 800);
+    setTimeout(scrollLatest, 2000);
+</script>
+"""
+
+
 @st.cache_resource
 def init_clients():
     return (
@@ -455,6 +525,16 @@ if user_input:
         "content": response_text,
         "pages": source_pages,
     })
+
+
+# --- Auto-scroll to newest message (only when the count grew) --------------
+# Runs after any turn where the message count increased; avoids yanking the
+# viewport around when the user is scrolled up reading old messages.
+_msg_count = len(st.session_state.get("messages", []))
+if _msg_count > st.session_state.get("_prev_msg_count", 0):
+    st.session_state._prev_msg_count = _msg_count
+    import streamlit.components.v1 as components
+    components.html(_scroll_snippet, height=0)
 
 
 # --- Staff ping dialog + trigger button ------------------------------------
