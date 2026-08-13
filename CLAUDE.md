@@ -4,7 +4,7 @@
 
 Customer-facing AI rules assistant for **The Merry Meeple**, a board game café in Crown Heights, Brooklyn. Every game box carries a QR code; scanning it deep-links a customer straight into a game-scoped chat that answers rules questions with page-cited answers from ingested rulebooks.
 
-- Deployed at: `https://merry-meeple.streamlit.app`
+- Deployed at: `https://merry-meeple-rules.fly.dev` (Fly.io, always-on ~$5/mo — was Streamlit Cloud, migrated Jul 2026)
 - Repo: `merry-meeple-rules` (public GitHub, master auto-deploys)
 - Corpus: **333 games / 11k chunks / 406 PDFs** (as of Jul 2026)
 - Target scale: ~500 titles
@@ -21,7 +21,7 @@ The rules assistant is the **only AI surface** at Merry Meeple. Menu/deals/order
 | Storage | SQLite (`game_library.db`) | Committed to git; ~70MB with the full corpus |
 | Embeddings | Voyage AI (`voyage-3`) | Semantic search over 1024-dim vectors; free tier = 3 RPM |
 | LLM | Claude (env-driven, currently `claude-sonnet-4-5`) | Answer generation |
-| Hosting | Streamlit Cloud | Free tier; auto-deploys on push to master |
+| Hosting | Fly.io | `iad` region, shared-cpu-1x, 1GB RAM, always-on ~$5/mo. Deploy via `flyctl deploy` (NOT auto on push) |
 | PDF parsing | pypdf + EasyOCR | Best-of-both per-page extraction |
 | Chunking | tiktoken | 500 tokens, 50 overlap |
 
@@ -179,18 +179,20 @@ python clear_and_rescan.py
 Voyage AI free tier = 3 RPM. `process_rulebooks.py` sleeps `RATE_LIMIT_DELAY = 25` seconds between embedding batches. Don't remove this without upgrading the Voyage tier.
 
 ### Deployment Model
-- `game_library.db` **is committed to git** — Streamlit Cloud has no persistent filesystem.
-- Binary-embedding format keeps the DB under GitHub's 100MB per-file cap (currently ~70MB).
+- Live on **Fly.io** — `merry-meeple-rules.fly.dev`, iad region, always-on. `Dockerfile` + `fly.toml` in the repo root.
+- Deploy is **not** automatic on push. Run `flyctl deploy` after `git push` (Fly CLI at `%USERPROFILE%\.fly\bin\flyctl.exe` on Casey's Windows machine).
+- `game_library.db` **is committed to git** — ships inside the Docker image.
+- Binary-embedding format keeps the DB under GitHub's 100MB per-file cap (currently ~65MB).
 - PDFs are NOT committed (copyright). Ingestion happens locally; only the resulting DB ships.
-- API keys go in Streamlit Cloud Secrets, not the local `.env`.
+- API keys are Fly secrets (`fly secrets set NAME=VALUE`), not env vars in `.env` for prod. Local dev uses `.env`.
 
 ### Model versions
 All model IDs live in `config.py`, driven by env vars (`CLAUDE_MODEL`, `VOYAGE_MODEL`). Never hardcode a model string.
 
 When Anthropic emails a retirement notice:
 1. Pick the successor from `docs.anthropic.com/en/docs/about-claude/models`.
-2. Update `CLAUDE_MODEL` in `.env` (local) and Streamlit Cloud Secrets (production).
-3. Redeploy — no code change needed.
+2. Update `CLAUDE_MODEL` in `.env` (local) and via `flyctl secrets set CLAUDE_MODEL=...` (production).
+3. Redeploy with `flyctl deploy` — no code change needed.
 
 If prod ever 404s on a model call, it's almost certainly a retirement.
 
@@ -228,10 +230,10 @@ Everything customer-facing that wasn't rules Q&A has been stripped. What's left:
 |---|---|---|
 | Claude Sonnet 4.5 (answer) | ~$0.011/question | ~$44 |
 | Voyage AI (query embed) | ~$0.0000015/embed | ~$0.006 |
-| Streamlit Cloud | Free | $0 |
-| **Total** | | **~$44/month** |
+| Fly.io VM (shared-cpu-1x, 1GB, always-on) | | ~$5-6 |
+| **Total** | | **~$50/month** |
 
-If costs matter at scale: swapping `CLAUDE_MODEL` to Haiku 4.5 in Streamlit Cloud Secrets drops per-question cost ~14× with the same behavioral guarantees. No code change needed.
+If costs matter at scale: `flyctl secrets set CLAUDE_MODEL=claude-haiku-4-5-20251001` drops per-question cost ~14× with the same behavioral guarantees. No code change needed.
 
 ---
 
@@ -245,7 +247,7 @@ VOYAGE_MODEL=voyage-3           # optional; config.py has the default
 ```
 
 Local: `.env`
-Production: Streamlit Cloud Secrets (Settings → Secrets)
+Production: `flyctl secrets set NAME=VALUE` (encrypted, injected as env vars in the container)
 
 ---
 
