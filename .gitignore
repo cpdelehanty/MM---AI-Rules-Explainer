@@ -54,3 +54,7 @@ golden_summary.csv
 
 # Golden Q&A dataset (dev-only reference data, paused)
 golden_set/
+
+# Raw designer package (only the picks in assets/brand ship)
+brand_assets/
+

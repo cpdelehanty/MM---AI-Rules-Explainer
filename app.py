@@ -276,12 +276,98 @@ def send_staff_ping(game_title, question, table_number=None, reason="rules_quest
 # Streamlit UI
 # --------------------------------------------------------------------------
 
+BRAND_DIR = "assets/brand"
+
 st.set_page_config(
     page_title="The Merry Meeple — Rules Assistant",
-    page_icon="🎲",
+    page_icon=f"{BRAND_DIR}/favicon-32.png",
     layout="centered",
     initial_sidebar_state="collapsed",
 )
+
+# --- Brand styling ---------------------------------------------------------
+# Load Montserrat (per the brand guidelines — closest free match to Grift,
+# the paid brand typeface). Override Streamlit's default red accents with
+# the brand green (#2b4a3f). Amber (#c9922a) reserved for callouts.
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap');
+
+html, body, .stApp, .stApp *, .stMarkdown, .stMarkdown *,
+button, input, textarea, select, [class*="st"] {
+    font-family: 'Montserrat', -apple-system, BlinkMacSystemFont,
+                 'Segoe UI', sans-serif !important;
+}
+
+/* Primary CTA + form submit -> brand green */
+[data-testid="stBaseButton-primary"],
+[data-testid="stFormSubmitButton"] > button {
+    background-color: #2b4a3f !important;
+    color: #FFFFFF !important;
+    border-color: #2b4a3f !important;
+}
+[data-testid="stBaseButton-primary"]:hover,
+[data-testid="stFormSubmitButton"] > button:hover {
+    background-color: #1e3529 !important;
+    border-color: #1e3529 !important;
+}
+
+/* Secondary buttons — subtle brand outline instead of Streamlit red */
+[data-testid="stBaseButton-secondary"] {
+    border-color: #2b4a3f !important;
+    color: #2b4a3f !important;
+}
+[data-testid="stBaseButton-secondary"]:hover {
+    background-color: #ede0c4 !important;   /* parchment on hover */
+    color: #2b4a3f !important;
+    border-color: #2b4a3f !important;
+}
+
+/* Chat input focus ring -> green */
+[data-testid="stChatInput"] textarea:focus {
+    border-color: #2b4a3f !important;
+    box-shadow: 0 0 0 1px #2b4a3f !important;
+}
+
+/* Links */
+a { color: #2b4a3f !important; }
+a:hover { color: #c9922a !important; }
+
+/* Headings — brand green, tighter tracking with Montserrat */
+.stApp h1, .stApp h2, .stApp h3, .stApp h4,
+.stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {
+    color: #2b4a3f !important;
+    letter-spacing: -0.01em !important;
+    font-weight: 700 !important;
+}
+
+/* Center the header logo we render below */
+.mm-brand-header {
+    display: flex;
+    justify-content: center;
+    padding: 0.25rem 0 0.75rem;
+}
+.mm-brand-header img {
+    max-width: 320px;
+    width: 100%;
+    height: auto;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+def render_brand_header(width_px=280):
+    """Centered primary logo. Used at the top of both the picker and chat views."""
+    import base64
+    with open(f"{BRAND_DIR}/primary-light.svg", "rb") as f:
+        svg_b64 = base64.b64encode(f.read()).decode("ascii")
+    st.markdown(
+        f'<div class="mm-brand-header">'
+        f'<img src="data:image/svg+xml;base64,{svg_b64}" '
+        f'alt="The Merry Meeple" style="max-width:{width_px}px;">'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ------------------------------------------------------------------
@@ -392,7 +478,7 @@ game_title = slug_to_title(g_param, all_games)
 # --- No `?g=` — testing game picker ----------------------------------------
 
 if not game_title:
-    st.title("🎲 The Merry Meeple")
+    render_brand_header(width_px=340)
     st.markdown("### Pick a game to get started")
     st.caption(
         "In production, this page won't exist — customers scan a QR on the game "
@@ -431,6 +517,9 @@ if st.session_state.get("_active_game") != game_title:
     st.session_state.messages = []
     st.session_state.language_pick = DEFAULT_LANG_LABEL
 
+
+# Small brand mark above the switcher — anchors every chat view to the cafe.
+render_brand_header(width_px=200)
 
 # Header: game switcher (dev-visible) + language dropdown
 c1, c2 = st.columns([3, 2])

@@ -1,0 +1,9 @@
+# Merry Meeple brand theme. Force light theme so brand colors read
+# consistently regardless of the customer's OS setting.
+[theme]
+base = "light"
+primaryColor = "#2b4a3f"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#ede0c4"
+textColor = "#1a1a1a"
+font = "sans serif"
