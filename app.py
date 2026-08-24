@@ -299,6 +299,20 @@ button, input, textarea, select, [class*="st"] {
                  'Segoe UI', sans-serif !important;
 }
 
+/* Restore Material Symbols on icon elements — otherwise Streamlit's chat
+   avatars (and other iconized bits) render the ligature text like "smart_toy"
+   instead of the glyph, because our font override above clobbers them. */
+[data-testid^="chatAvatarIcon"],
+[data-testid^="chatAvatarIcon"] *,
+.material-symbols-outlined,
+.material-symbols-rounded,
+.material-icons,
+span[class*="material-symbols"],
+span[class*="material-icons"] {
+    font-family: 'Material Symbols Rounded', 'Material Symbols Outlined',
+                 'Material Icons', sans-serif !important;
+}
+
 /* Primary CTA + form submit -> brand green */
 [data-testid="stBaseButton-primary"],
 [data-testid="stFormSubmitButton"] > button {
@@ -560,9 +574,18 @@ if not st.session_state.messages:
     })
 
 
+# Assistant messages get the brand submark; user messages keep Streamlit's
+# default person glyph.
+ASSISTANT_AVATAR = f"{BRAND_DIR}/submark-green-noplace-512w.png"
+
+
+def _avatar_for(role):
+    return ASSISTANT_AVATAR if role == "assistant" else None
+
+
 # Render history
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
+    with st.chat_message(msg["role"], avatar=_avatar_for(msg["role"])):
         st.markdown(msg["content"])
         pages = msg.get("pages") or []
         if pages:
@@ -577,7 +600,7 @@ if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
         with st.spinner("Consulting the rulebook..."):
             chunks = get_cached_chunks(game_title)
             # For follow-ups like "yes" or short clarifications, embed with
