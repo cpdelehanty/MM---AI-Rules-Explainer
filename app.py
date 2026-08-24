@@ -574,13 +574,16 @@ if not st.session_state.messages:
     })
 
 
-# Assistant messages get the brand submark; user messages keep Streamlit's
-# default person glyph.
+# Assistant messages get the brand submark. The user avatar is a plain
+# emoji glyph so we don't depend on the Material Symbols icon font — which
+# our aggressive Montserrat override interferes with for the default
+# Streamlit avatar span.
 ASSISTANT_AVATAR = f"{BRAND_DIR}/submark-green-noplace-512w.png"
+USER_AVATAR = "🧑"
 
 
 def _avatar_for(role):
-    return ASSISTANT_AVATAR if role == "assistant" else None
+    return ASSISTANT_AVATAR if role == "assistant" else USER_AVATAR
 
 
 # Render history
@@ -597,7 +600,7 @@ user_input = st.chat_input(f"Ask anything about {game_title}...")
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar=USER_AVATAR):
         st.markdown(user_input)
 
     with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
